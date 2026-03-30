@@ -22,14 +22,14 @@ jobs:
           aria2c -x 16 -s 16 -k 1M --continue=true -o "$FILE" "$URL"
 
       - name: Upload to Pixeldrain
-  run: |
-    FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
+        run: |
+         FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
 
-    RESPONSE=$(curl -s -T "$FILE" https://pixeldrain.com/api/file)
+         RESPONSE=$(curl -s -T "$FILE" https://pixeldrain.com/api/file)
 
-    echo "Response: $RESPONSE"
+         echo "Response: $RESPONSE"
 
-    ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+         ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
 
-    echo "Pixeldrain link:"
-    echo "https://pixeldrain.com/u/$ID"
+         echo "Pixeldrain link:"
+         echo "https://pixeldrain.com/u/$ID"
