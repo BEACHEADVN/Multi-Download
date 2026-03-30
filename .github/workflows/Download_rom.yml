@@ -1,4 +1,4 @@
-name: Download Xiaomi.eu ROM (Fast + Verify + Retry)
+name: Download Xiaomi.eu ROM (Stable Mirror)
 
 on:
   workflow_dispatch:
@@ -8,59 +8,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install tools
-        run: sudo apt-get update && sudo apt-get install -y aria2 wget
+      - name: Install aria2
+        run: sudo apt-get update && sudo apt-get install -y aria2
 
-      # ===== DOWNLOAD (ARIA2) =====
-      - name: Download with aria2
-        run: |
-          URL="https://downloads.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
-          FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
-
-          aria2c \
-            -x 16 \
-            -s 16 \
-            -k 1M \
-            --min-split-size=1M \
-            --max-tries=10 \
-            --retry-wait=5 \
-            --timeout=60 \
-            --continue=true \
-            --header="User-Agent: Mozilla/5.0" \
-            --header="Referer: https://sourceforge.net/" \
-            -o "$FILE" \
-            "$URL"
-
-      # ===== VERIFY FILE =====
-      - name: Verify file
-        id: verify
+      - name: Download ROM (direct mirror)
         run: |
           FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
 
-          echo "=== FILE INFO ==="
-          ls -lh "$FILE"
-
-          TYPE=$(file -b "$FILE")
-          echo "Type: $TYPE"
-
-          SIZE=$(stat -c%s "$FILE")
-          echo "Size: $SIZE bytes"
-
-          # Kiểm tra nếu không phải zip hoặc file quá nhỏ (<1GB)
-          if [[ "$TYPE" != *"Zip archive"* ]] || [ "$SIZE" -lt 1000000000 ]; then
-            echo "File invalid!"
-            exit 1
-          fi
-
-          echo "File OK"
-
-      # ===== RETRY MIRROR IF FAIL =====
-      - name: Retry with direct mirror
-        if: failure()
-        run: |
-          FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
-          rm -f "$FILE"
-
+          # Mirror thật (ổn định)
           URL="https://netix.dl.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
 
           aria2c \
@@ -68,19 +23,13 @@ jobs:
             -s 16 \
             -k 1M \
             --continue=true \
+            --max-tries=10 \
+            --retry-wait=5 \
             -o "$FILE" \
             "$URL"
 
-      # ===== FINAL CHECK =====
-      - name: Final verify
+      - name: Verify file
         run: |
           FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
           ls -lh "$FILE"
           file "$FILE"
-
-      # ===== UPLOAD =====
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: xiaomi-eu-rom
-          path: xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip
