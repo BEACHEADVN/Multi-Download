@@ -33,7 +33,10 @@ jobs:
         run: |
           FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
 
-          RESPONSE=$(curl -s -F "file=@${FILE}" https://pixeldrain.com/api/file)
+          RESPONSE=$(curl -s \
+      -u ":${{ secrets.PIXELDRAIN_API_KEY }}" \
+      -F "file=@${FILE}" \
+      https://pixeldrain.com/api/file)
 
           echo "Response: $RESPONSE"
 
