@@ -21,11 +21,15 @@ jobs:
 
           aria2c -x 16 -s 16 -k 1M --continue=true -o "$FILE" "$URL"
 
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: rom-${{ github.run_number }}
-          name: Xiaomi.eu ROM Build ${{ github.run_number }}
-          files: xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload to Pixeldrain
+  run: |
+    FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
+
+    RESPONSE=$(curl -s -T "$FILE" https://pixeldrain.com/api/file)
+
+    echo "Response: $RESPONSE"
+
+    ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+
+    echo "Pixeldrain link:"
+    echo "https://pixeldrain.com/u/$ID"
