@@ -1,10 +1,10 @@
-name: Download & Upload Xiaomi.eu ROM
+name: Download & Upload ROM
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # 🔥 FIX 403 ở đây
+  contents: write
 
 jobs:
   build:
@@ -12,7 +12,9 @@ jobs:
 
     steps:
       - name: Install tools
-        run: sudo apt-get update && sudo apt-get install -y aria2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 curl
 
       - name: Download ROM
         run: |
@@ -21,15 +23,37 @@ jobs:
 
           aria2c -x 16 -s 16 -k 1M --continue=true -o "$FILE" "$URL"
 
+      - name: Verify file
+        run: |
+          FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
+          ls -lh "$FILE"
+          file "$FILE"
+
       - name: Upload to Pixeldrain
         run: |
-         FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
+          FILE="xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip"
 
-         RESPONSE=$(curl -s -T "$FILE" https://pixeldrain.com/api/file)
+          RESPONSE=$(curl -s -F "file=@${FILE}" https://pixeldrain.com/api/file)
 
-         echo "Response: $RESPONSE"
+          echo "Response: $RESPONSE"
 
-         ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+          ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | cut -d '"' -f4)
 
-         echo "Pixeldrain link:"
-         echo "https://pixeldrain.com/u/$ID"
+          LINK="https://pixeldrain.com/u/${ID}"
+
+          echo "Pixeldrain link:"
+          echo "$LINK"
+
+          echo "## 📦 Download Link" >> $GITHUB_STEP_SUMMARY
+          echo "$LINK" >> $GITHUB_STEP_SUMMARY
+
+      - name: Split file (artifact)
+        run: |
+          split -b 1900M xiaomi.eu_SOCRATES_OS3.0.5.0.VMKCNXM_15.zip part_
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rom-parts
+          path: part_*
+          retention-days: 7
