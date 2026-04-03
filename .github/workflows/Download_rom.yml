@@ -92,8 +92,8 @@ jobs:
 
           TEXT="<b>📦 New Socrates ROM Available</b>
 
-📱 <b>File:</b> $FILE
-🔗 <b>Download:</b> <a href=\"$LINK\">Click here</a>"
+       📱 <b>File:</b> $FILE
+       🔗 <b>Download:</b> <a href=\"$LINK\">Click here</a>"
 
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d chat_id="${CHAT_ID}" \
