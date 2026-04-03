@@ -3,10 +3,11 @@ name: Auto Download Latest Socrates ROM
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # check mỗi 6 tiếng
+    - cron: "0 */6 * * *"
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
@@ -19,22 +20,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y aria2 curl grep sed
 
-      # ===== FIND LATEST ROM =====
+      # ===== FIND ROM =====
       - name: Get latest socrates ROM
         id: rom
         run: |
           BASE_URL="https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/"
 
           HTML=$(curl -s "$BASE_URL")
-
           FILE=$(echo "$HTML" | grep -o 'xiaomi.eu_SOCRATES_OS3[^"]*zip' | sort -V | tail -n 1)
 
           if [ -z "$FILE" ]; then
             echo "No ROM found!"
             exit 1
           fi
-
-          echo "Found ROM: $FILE"
 
           DOWNLOAD_URL="https://netix.dl.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/$FILE"
 
@@ -44,27 +42,19 @@ jobs:
       # ===== DOWNLOAD =====
       - name: Download ROM
         run: |
-          FILE="${{ steps.rom.outputs.file }}"
-          URL="${{ steps.rom.outputs.url }}"
-
-          aria2c -x 16 -s 16 -k 1M --continue=true -o "$FILE" "$URL"
-
-      # ===== VERIFY =====
-      - name: Verify
-        run: |
-          FILE="${{ steps.rom.outputs.file }}"
-          ls -lh "$FILE"
-          file "$FILE"
+          aria2c -x 16 -s 16 -k 1M --continue=true \
+            -o "${{ steps.rom.outputs.file }}" \
+            "${{ steps.rom.outputs.url }}"
 
       # ===== UPLOAD PIXELDRAIN =====
       - name: Upload to Pixeldrain
+        id: pd
         env:
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
           FILE="${{ steps.rom.outputs.file }}"
 
           RESPONSE=$(curl -s -u ":$PD_API_KEY" -F "file=@${FILE}" https://pixeldrain.com/api/file)
-
           ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | cut -d '"' -f4)
 
           if [ -z "$ID" ]; then
@@ -74,18 +64,27 @@ jobs:
 
           LINK="https://pixeldrain.com/u/${ID}"
 
-          echo "## 📦 Latest Socrates ROM" >> "$GITHUB_STEP_SUMMARY"
-          echo "$FILE" >> "$GITHUB_STEP_SUMMARY"
+          echo "link=$LINK" >> $GITHUB_OUTPUT
+
+          echo "## 📦 Latest ROM" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.rom.outputs.file }}" >> "$GITHUB_STEP_SUMMARY"
           echo "$LINK" >> "$GITHUB_STEP_SUMMARY"
 
-      # ===== SPLIT + ARTIFACT =====
-      - name: Split file
-        run: |
-          FILE="${{ steps.rom.outputs.file }}"
-          split -b 1900M "$FILE" part_
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      # ===== CREATE ISSUE =====
+      - name: Post link to GitHub Issue
+        uses: actions/github-script@v7
         with:
-          name: rom-parts
-          path: part_*
+          script: |
+            const title = "📦 New Socrates ROM Available";
+            const body = `
+            **ROM:** ${{ steps.rom.outputs.file }}
+            
+            **Download:** ${{ steps.pd.outputs.link }}
+            `;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body
+            });
