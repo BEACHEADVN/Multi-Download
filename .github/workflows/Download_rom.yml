@@ -1,4 +1,4 @@
-name: Auto Download Socrates ROM + Telegram
+name: Auto Socrates ROM + Pixeldrain + Telegram
 
 on:
   workflow_dispatch:
@@ -26,7 +26,7 @@ jobs:
           FILE=$(echo "$HTML" | grep -o 'xiaomi.eu_SOCRATES_OS3[^"]*zip' | sort -V | tail -n 1)
 
           if [ -z "$FILE" ]; then
-            echo "No ROM found!"
+            echo "❌ No ROM found"
             exit 1
           fi
 
@@ -42,6 +42,23 @@ jobs:
             -o "${{ steps.rom.outputs.file }}" \
             "${{ steps.rom.outputs.url }}"
 
+      # ===== VERIFY =====
+      - name: Verify file
+        run: |
+          FILE="${{ steps.rom.outputs.file }}"
+          ls -lh "$FILE"
+          file "$FILE"
+
+      # ===== CHECK API KEY =====
+      - name: Check Pixeldrain API key
+        env:
+          PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+        run: |
+          if [ -z "$PD_API_KEY" ]; then
+            echo "❌ Missing PIXELDRAIN_API_KEY"
+            exit 1
+          fi
+
       # ===== UPLOAD PIXELDRAIN =====
       - name: Upload to Pixeldrain
         id: pd
@@ -51,17 +68,20 @@ jobs:
           FILE="${{ steps.rom.outputs.file }}"
 
           RESPONSE=$(curl -s -u ":$PD_API_KEY" -F "file=@${FILE}" https://pixeldrain.com/api/file)
+
+          echo "Response: $RESPONSE"
+
           ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | cut -d '"' -f4)
 
           if [ -z "$ID" ]; then
-            echo "Upload failed"
+            echo "❌ Upload failed"
             exit 1
           fi
 
           LINK="https://pixeldrain.com/u/${ID}"
           echo "link=$LINK" >> $GITHUB_OUTPUT
 
-      # ===== SEND TELEGRAM =====
+      # ===== SEND TELEGRAM (HTML - KHÔNG LỖI) =====
       - name: Send to Telegram
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -70,12 +90,12 @@ jobs:
           FILE="${{ steps.rom.outputs.file }}"
           LINK="${{ steps.pd.outputs.link }}"
 
-          TEXT="📦 *New Socrates ROM Available*
-          
-          📱 *File:* $FILE
-          🔗 *Download:* $LINK"
+          TEXT="<b>📦 New Socrates ROM Available</b>
+
+📱 <b>File:</b> $FILE
+🔗 <b>Download:</b> <a href=\"$LINK\">Click here</a>"
 
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d chat_id="${CHAT_ID}" \
             -d text="$TEXT" \
-            -d parse_mode="Markdown"
+            -d parse_mode="HTML"
