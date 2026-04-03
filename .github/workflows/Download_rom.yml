@@ -10,23 +10,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ===== INSTALL =====
       - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y aria2 curl grep sed
 
-      # ===== FIND ROM =====
       - name: Get latest socrates ROM
         id: rom
         run: |
           BASE_URL="https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/"
-
           HTML=$(curl -s "$BASE_URL")
           FILE=$(echo "$HTML" | grep -o 'xiaomi.eu_SOCRATES_OS3[^"]*zip' | sort -V | tail -n 1)
 
           if [ -z "$FILE" ]; then
-            echo "❌ No ROM found"
+            echo "No ROM found"
             exit 1
           fi
 
@@ -35,31 +32,12 @@ jobs:
           echo "file=$FILE" >> $GITHUB_OUTPUT
           echo "url=$URL" >> $GITHUB_OUTPUT
 
-      # ===== DOWNLOAD =====
       - name: Download ROM
         run: |
           aria2c -x 16 -s 16 -k 1M --continue=true \
             -o "${{ steps.rom.outputs.file }}" \
             "${{ steps.rom.outputs.url }}"
 
-      # ===== VERIFY =====
-      - name: Verify file
-        run: |
-          FILE="${{ steps.rom.outputs.file }}"
-          ls -lh "$FILE"
-          file "$FILE"
-
-      # ===== CHECK API KEY =====
-      - name: Check Pixeldrain API key
-        env:
-          PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
-        run: |
-          if [ -z "$PD_API_KEY" ]; then
-            echo "❌ Missing PIXELDRAIN_API_KEY"
-            exit 1
-          fi
-
-      # ===== UPLOAD PIXELDRAIN =====
       - name: Upload to Pixeldrain
         id: pd
         env:
@@ -68,20 +46,16 @@ jobs:
           FILE="${{ steps.rom.outputs.file }}"
 
           RESPONSE=$(curl -s -u ":$PD_API_KEY" -F "file=@${FILE}" https://pixeldrain.com/api/file)
-
-          echo "Response: $RESPONSE"
-
           ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | cut -d '"' -f4)
 
           if [ -z "$ID" ]; then
-            echo "❌ Upload failed"
+            echo "Upload failed"
             exit 1
           fi
 
           LINK="https://pixeldrain.com/u/${ID}"
           echo "link=$LINK" >> $GITHUB_OUTPUT
 
-      # ===== SEND TELEGRAM (HTML - KHÔNG LỖI) =====
       - name: Send to Telegram
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
