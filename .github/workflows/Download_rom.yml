@@ -118,8 +118,8 @@ jobs:
           LINK="${{ steps.pd.outputs.link }}"
 
           TEXT="<b>Socrates ROM</b>
-$FILE
-<a href=\"$LINK\">Download</a>"
+          $FILE
+          <a href=\"$LINK\">Download</a>"
 
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d chat_id="${CHAT_ID}" \
