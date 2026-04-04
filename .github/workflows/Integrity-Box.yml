@@ -61,6 +61,17 @@ jobs:
           curl -L -o "${{ steps.integrity.outputs.file_name }}" "${{ steps.integrity.outputs.dl_url }}"
           ls -lh "${{ steps.integrity.outputs.file_name }}"
 
+      - name: Send Notification to Telegram
+        if: success()
+        uses: xireiki/channel-post@v1
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_USER_ID }}
+          context: |
+            <a href="https://github.com/MeowDump/Integrity-Box">https://github.com/MeowDump/Integrity-Box</a>
+          parse_mode: HTML
+          method: sendMessage
+
       # ===== TELEGRAM UPLOAD (PYTHON) =====
       - name: Upload to Telegram via Python
         if: steps.check.outputs.skip != 'true'
