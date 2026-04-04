@@ -31,7 +31,7 @@ jobs:
           HTML_URL=$(echo "$JSON" | jq -r '.html_url')
 
           if [ -z "$DL_URL" ] || [ "$DL_URL" = "null" ]; then
-            echo "Không tìm thấy file bindhosts.zip trong Release Assets. Thử tải source code..."
+            echo "Không tìm thấy file bindhosts.zip, dùng link fallback..."
             DL_URL="https://github.com/bindhosts/bindhosts/archive/refs/tags/${TAG}.zip"
           fi
 
@@ -58,19 +58,14 @@ jobs:
       - name: Download Asset
         if: steps.check.outputs.skip != 'true'
         run: |
-          # Tải và đặt tên file cố định là final_bindhosts.zip
+          # Tải file vào thư mục làm việc gốc
           curl -L -o "final_bindhosts.zip" "${{ steps.bindhosts.outputs.dl_url }}"
           
-          # KIỂM TRA SỰ TỒN TẠI NGAY LẬP TỨC
           if [ ! -f "final_bindhosts.zip" ]; then
-            echo "CRITICAL ERROR: File final_bindhosts.zip không được tạo ra!"
+            echo "LỖI: Tải file thất bại!"
             exit 1
           fi
-          
-          echo "File size:"
           ls -lh final_bindhosts.zip
-          echo "Full path:"
-          realpath final_bindhosts.zip
 
       # ===== TELEGRAM UPLOAD =====
       - name: Upload to Telegram
@@ -84,10 +79,10 @@ jobs:
           
           CAPTION="<b>🚀 Bindhosts New Update!</b>%0A%0AVersion: <code>$TAG</code>%0A%0A<a href=\"$URL\">🔗 Xem chi tiết trên GitHub</a>"
 
-          # Sử dụng tên file đã fix cứng và đường dẫn tuyệt đối
-          # Nếu file > 50MB curl có thể lỗi, nhưng bindhosts thường chỉ vài KB
+          # Sử dụng biến môi trường $GITHUB_WORKSPACE để xác định đường dẫn tuyệt đối
+          # Đảm bảo @ được đặt ngay trước đường dẫn file
           curl -v -F chat_id="${CHAT_ID}" \
-               -F document=@"$(pwd)/final_bindhosts.zip" \
+               -F document=@"$GITHUB_WORKSPACE/final_bindhosts.zip" \
                -F caption="$CAPTION" \
                -F parse_mode="HTML" \
                "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument"
