@@ -19,80 +19,71 @@ jobs:
       - name: Pull latest
         run: git pull origin main || true
 
-      # ===== GET LATEST RELEASE INFO =====
-      - name: Get Release Info (Safe Mode)
-        id: info
+      # ===== GET RELEASE INFO (SAFE MODE) =====
+      - name: Get Latest Release
+        id: bindhosts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: python
         run: |
             import os, requests, json
-            
-            repo = "sidex15/susfs4ksu-module"
+            repo = "bindhosts/bindhosts"
             headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
-            
             try:
-                # Lấy dữ liệu Release từ GitHub
                 response = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", headers=headers)
                 data = response.json()
-                
                 tag = data.get('tag_name', '')
                 date = data.get('published_at', data.get('created_at', ''))
+                html_url = data.get('html_url', '')
                 
-                # Tìm asset zip
                 assets = data.get('assets', [])
-                zip_asset = next((a for a in assets if a['name'].endswith('.zip')), None)
+                # Tìm asset có tên bindhosts.zip
+                zip_asset = next((a for a in assets if a['name'] == "bindhosts.zip"), None)
                 
                 if zip_asset:
                     file_name = zip_asset['name']
                     dl_url = zip_asset['browser_download_url']
                     size = zip_asset['size']
                 else:
-                    file_name = f"susfs4ksu-{tag}.zip"
+                    file_name = f"bindhosts-{tag}.zip"
                     dl_url = f"https://github.com/{repo}/archive/refs/tags/{tag}.zip"
                     size = 0
                 
-                # Ghi dữ liệu ra GITHUB_OUTPUT an toàn
                 with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                    f.write(f"tag={tag}\n")
-                    f.write(f"file_name={file_name}\n")
-                    f.write(f"dl_url={dl_url}\n")
-                    f.write(f"size={size}\n")
-                    f.write(f"date={date}\n")
-                    
+                    f.write(f"tag={tag}\nfile_name={file_name}\ndl_url={dl_url}\nsize={size}\ndate={date}\nhtml_url={html_url}\n")
             except Exception as e:
-                print(f"CRITICAL ERROR: {e}")
-                exit(1)
+                print(f"Error: {e}"); exit(1)
 
       # ===== CHECK STATE =====
       - name: Check State
         id: check
         run: |
-          TAG="${{ steps.bindhosts.outputs.tag }}"
-          STATE_FILE="bindhosts_state.txt"
-          touch $STATE_FILE
-          LAST_TAG=$(cat $STATE_FILE)
-          if [ "$TAG" = "$LAST_TAG" ]; then echo "skip=true" >> $GITHUB_OUTPUT; else echo "skip=false" >> $GITHUB_OUTPUT; fi
+          touch bindhosts_state.txt
+          if [ "${{ steps.bindhosts.outputs.tag }}" = "$(cat bindhosts_state.txt)" ]; then 
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else 
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
 
       # ===== DOWNLOAD =====
       - name: Download Asset
         if: steps.check.outputs.skip != 'true'
         run: |
           curl -L -o "bindhosts_temp.zip" "${{ steps.bindhosts.outputs.dl_url }}"
-          ls -lh bindhosts_temp.zip
 
+      # ===== NOTIFICATION (TELEGRAM) =====
       - name: Send Notification to Telegram
-        if: success()
+        if: steps.check.outputs.skip != 'true'
         uses: xireiki/channel-post@v1
         with:
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_USER_ID }}
           context: |
-            <a href="https://github.com/bindhosts/bindhosts">https://github.com/bindhosts/bindhosts</a>
+            https://github.com/bindhosts/bindhosts
           parse_mode: HTML
           method: sendMessage
 
-      # ===== TELEGRAM UPLOAD (PYTHON) =====
+      # ===== UPLOAD FILE (PYTHON) =====
       - name: Upload to Telegram via Python
         if: steps.check.outputs.skip != 'true'
         env:
@@ -100,50 +91,53 @@ jobs:
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TAG: ${{ steps.bindhosts.outputs.tag }}
           URL: ${{ steps.bindhosts.outputs.html_url }}
+          SIZE: ${{ steps.bindhosts.outputs.size }}
+          DATE: ${{ steps.bindhosts.outputs.date }}
         shell: python
         run: |
-          import os
-          import requests
+          import os, requests, datetime
+          
+          def get_size(b):
+              b = int(b)
+              for unit in ['B','KB','MB']:
+                  if b < 1024: return f"{b:.2f} {unit}"
+                  b /= 1024
+              return f"{b:.2f} MB"
 
           bot_token = os.environ['BOT_TOKEN']
           chat_id = os.environ['CHAT_ID']
-          tag = os.environ['TAG']
-          url = os.environ['URL']
+          tag, url = os.environ['TAG'], os.environ['URL']
+          size = get_size(os.environ['SIZE'])
           
-          # File gốc vừa tải về
-          old_name = "bindhosts_temp.zip"
-          # Tên file mới theo phiên bản (ví dụ: bindhosts-v2.1.2.zip)
-          new_name = f"bindhosts-{tag}.zip"
-          
-          # Đổi tên file vật lý trên ổ đĩa
+          # Đổi tên file
+          old_name, new_name = "bindhosts_temp.zip", f"bindhosts-{tag}.zip"
           os.rename(old_name, new_name)
           
-          caption = f"<b>🚀 Bindhosts New Update!</b>\n\nVersion: <code>{tag}</code>\n\n<a href='{url}'>🔗 Xem chi tiết trên GitHub</a>"
-          
-          print(f"Đang gửi file: {new_name}...")
+          # Xử lý ngày tháng (giờ VN)
+          try:
+              date_obj = datetime.datetime.strptime(os.environ['DATE'], "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(hours=7)
+              date_str = date_obj.strftime("%d/%m/%Y %H:%M")
+          except: date_str = "N/A"
+
+          caption = (f"<b>🚀 Bindhosts New Update!</b>\n\n"
+                     f"📦 Phiên bản: <code>{tag}</code>\n"
+                     f"📊 Dung lượng: <code>{size}</code>\n"
+                     f"📅 Cập nhật: <code>{date_str}</code>\n\n"
+                     f"<a href='{url}'>🔗 Xem chi tiết trên GitHub</a>")
           
           with open(new_name, 'rb') as f:
-              files = {'document': (new_name, f)} # Gửi kèm tên file mới
-              data = {
-                  'chat_id': chat_id,
-                  'caption': caption,
-                  'parse_mode': 'HTML'
-              }
-              response = requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=data, files=files)
-              
-          if response.status_code == 200:
-              print(f"Gửi thành công file {new_name}!")
-          else:
-              print(f"Lỗi: {response.text}")
-              exit(1)
+              files = {'document': (new_name, f)}
+              data = {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}
+              requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=data, files=files)
 
-      # ===== SAVE & COMMIT =====
+      # ===== SAVE & COMMIT (SAFE PUSH) =====
       - name: Save new state
         if: steps.check.outputs.skip != 'true'
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           echo "${{ steps.bindhosts.outputs.tag }}" > bindhosts_state.txt
-          git config user.name "actions"
-          git config user.email "actions@github.com"
           git add bindhosts_state.txt
           git commit -m "Update bindhosts state to ${{ steps.bindhosts.outputs.tag }}" || exit 0
-          git push
+          git pull --rebase origin main
+          git push origin main
