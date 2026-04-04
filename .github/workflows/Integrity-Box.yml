@@ -3,7 +3,7 @@ name: Check and Upload Integrity-Box Update
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 5 * * *" # 12:00 PM giờ Việt Nam
+    - cron: "0 5 * * *" # 12:00 PM Việt Nam
 
 permissions:
   contents: write
@@ -26,16 +26,20 @@ jobs:
           JSON=$(curl -s https://api.github.com/repos/MeowDump/Integrity-Box/releases/latest)
           TAG=$(echo "$JSON" | jq -r '.tag_name')
           
-          # Tìm asset có đuôi .zip (thường là module Magisk/KernelSU)
+          # Lấy tên file gốc của asset đầu tiên có đuôi .zip
+          FILE_NAME=$(echo "$JSON" | jq -r '.assets[] | select(.name | endswith(".zip")) | .name' | head -n 1)
+          # Lấy link tải tương ứng
           DL_URL=$(echo "$JSON" | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' | head -n 1)
           HTML_URL=$(echo "$JSON" | jq -r '.html_url')
 
-          # Nếu không có asset zip, dùng link fallback là source code
-          if [ -z "$DL_URL" ] || [ "$DL_URL" = "null" ]; then
+          # Nếu không tìm thấy asset nào (chỉ có source code)
+          if [ -z "$FILE_NAME" ] || [ "$FILE_NAME" = "null" ]; then
+            FILE_NAME="Integrity-Box-${TAG}.zip"
             DL_URL="https://github.com/MeowDump/Integrity-Box/archive/refs/tags/${TAG}.zip"
           fi
 
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
           echo "dl_url=$DL_URL" >> $GITHUB_OUTPUT
           echo "html_url=$HTML_URL" >> $GITHUB_OUTPUT
 
@@ -53,8 +57,9 @@ jobs:
       - name: Download Asset
         if: steps.check.outputs.skip != 'true'
         run: |
-          curl -L -o "integrity_temp.zip" "${{ steps.integrity.outputs.dl_url }}"
-          ls -lh integrity_temp.zip
+          # Tải về với tên file gốc lấy từ GitHub
+          curl -L -o "${{ steps.integrity.outputs.file_name }}" "${{ steps.integrity.outputs.dl_url }}"
+          ls -lh "${{ steps.integrity.outputs.file_name }}"
 
       # ===== TELEGRAM UPLOAD (PYTHON) =====
       - name: Upload to Telegram via Python
@@ -64,6 +69,7 @@ jobs:
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TAG: ${{ steps.integrity.outputs.tag }}
           URL: ${{ steps.integrity.outputs.html_url }}
+          FILE_NAME: ${{ steps.integrity.outputs.file_name }}
         shell: python
         run: |
           import os
@@ -73,19 +79,18 @@ jobs:
           chat_id = os.environ['CHAT_ID']
           tag = os.environ['TAG']
           url = os.environ['URL']
-          
-          # Đổi tên file theo phiên bản
-          old_name = "integrity_temp.zip"
-          new_name = f"Integrity-Box-{tag}.zip"
-          os.rename(old_name, new_name)
+          file_name = os.environ['FILE_NAME']
           
           caption = f"<b>📦 Integrity-Box New Update!</b>\n\nVersion: <code>{tag}</code>\n\n<a href='{url}'>🔗 Xem chi tiết trên GitHub</a>"
           
-          print(f"Đang gửi file: {new_name}...")
+          print(f"Đang gửi file: {file_name}...")
           
-          with open(new_name, 'rb') as f:
-              # Gửi kèm tên file mới để hiển thị đúng trên Telegram
-              files = {'document': (new_name, f)}
+          if not os.path.exists(file_name):
+              print(f"Lỗi: Không tìm thấy file {file_name}")
+              exit(1)
+
+          with open(file_name, 'rb') as f:
+              files = {'document': (file_name, f)}
               data = {
                   'chat_id': chat_id,
                   'caption': caption,
@@ -94,7 +99,7 @@ jobs:
               response = requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=data, files=files)
               
           if response.status_code == 200:
-              print(f"Gửi thành công!")
+              print(f"Gửi thành công file {file_name}!")
           else:
               print(f"Lỗi: {response.text}")
               exit(1)
