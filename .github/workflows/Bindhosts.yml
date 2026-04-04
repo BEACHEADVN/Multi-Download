@@ -31,7 +31,7 @@ jobs:
           HTML_URL=$(echo "$JSON" | jq -r '.html_url')
 
           if [ -z "$DL_URL" ] || [ "$DL_URL" = "null" ]; then
-            echo "Không tìm thấy file bindhosts.zip, dùng link fallback..."
+            echo "Dùng link fallback..."
             DL_URL="https://github.com/bindhosts/bindhosts/archive/refs/tags/${TAG}.zip"
           fi
 
@@ -58,16 +58,11 @@ jobs:
       - name: Download Asset
         if: steps.check.outputs.skip != 'true'
         run: |
-          # Tải file vào thư mục làm việc gốc
-          curl -L -o "final_bindhosts.zip" "${{ steps.bindhosts.outputs.dl_url }}"
-          
-          if [ ! -f "final_bindhosts.zip" ]; then
-            echo "LỖI: Tải file thất bại!"
-            exit 1
-          fi
-          ls -lh final_bindhosts.zip
+          curl -L -o "bindhosts.zip" "${{ steps.bindhosts.outputs.dl_url }}"
+          if [ ! -f "bindhosts.zip" ]; then exit 1; fi
+          ls -lh bindhosts.zip
 
-      # ===== TELEGRAM UPLOAD =====
+      # ===== TELEGRAM UPLOAD (SỬA LỖI ĐƯỜNG DẪN) =====
       - name: Upload to Telegram
         if: steps.check.outputs.skip != 'true'
         env:
@@ -76,13 +71,14 @@ jobs:
         run: |
           TAG="${{ steps.bindhosts.outputs.tag }}"
           URL="${{ steps.bindhosts.outputs.html_url }}"
-          
           CAPTION="<b>🚀 Bindhosts New Update!</b>%0A%0AVersion: <code>$TAG</code>%0A%0A<a href=\"$URL\">🔗 Xem chi tiết trên GitHub</a>"
 
-          # Sử dụng biến môi trường $GITHUB_WORKSPACE để xác định đường dẫn tuyệt đối
-          # Đảm bảo @ được đặt ngay trước đường dẫn file
+          # THAY ĐỔI CHIẾN THUẬT:
+          # 1. Không dùng biến đường dẫn phức tạp trong lệnh curl
+          # 2. Dùng @file trực tiếp với tên file trần
+          
           curl -v -F chat_id="${CHAT_ID}" \
-               -F document=@"$GITHUB_WORKSPACE/final_bindhosts.zip" \
+               -F document=@bindhosts.zip \
                -F caption="$CAPTION" \
                -F parse_mode="HTML" \
                "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument"
