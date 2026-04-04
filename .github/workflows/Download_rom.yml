@@ -17,7 +17,8 @@ jobs:
 
       # ===== PULL STATE =====
       - name: Pull latest
-        run: git pull
+        run: |
+          git pull origin main || true
 
       - name: Install
         run: |
@@ -42,41 +43,38 @@ jobs:
         id: check
         run: |
           FILE="${{ steps.rom.outputs.file }}"
+          touch uploaded.txt # Tạo file nếu chưa có để tránh lỗi grep
 
-          if [ -f uploaded.txt ]; then
+          if grep -Fq "$FILE|" uploaded.txt; then
             ID=$(grep -F "$FILE|" uploaded.txt | tail -n1 | cut -d '|' -f2)
-
-            if [ -n "$ID" ]; then
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://pixeldrain.com/api/file/$ID)
-
-              if [ "$STATUS" = "200" ]; then
-                echo "skip=true" >> $GITHUB_OUTPUT
-                exit 0
-              fi
+            
+            # Kiểm tra xem file trên Pixeldrain còn sống không (HTTP 200)
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://pixeldrain.com/api/file/$ID)
+            
+            if [ "$STATUS" = "200" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+              echo "Tệp đã tồn tại và còn hiệu lực. Bỏ qua các bước sau."
+              exit 0
             fi
           fi
-
           echo "skip=false" >> $GITHUB_OUTPUT
 
-      - name: Stop if exists
-        if: steps.check.outputs.skip == 'true'
-        run: exit 0
-
-      # ===== DOWNLOAD =====
+      # ===== DOWNLOAD (Chỉ chạy nếu skip=false) =====
       - name: Download
+        if: steps.check.outputs.skip != 'true'
         run: |
           aria2c -x 16 -s 16 -k 1M --continue=true \
             -o "${{ steps.rom.outputs.file }}" \
             "${{ steps.rom.outputs.url }}"
 
-      # ===== UPLOAD =====
+      # ===== UPLOAD (Chỉ chạy nếu skip=false) =====
       - name: Upload Pixeldrain
+        if: steps.check.outputs.skip != 'true'
         id: pd
         env:
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
           FILE="${{ steps.rom.outputs.file }}"
-
           RESPONSE=$(curl -s -u ":$PD_API_KEY" -F "file=@${FILE}" https://pixeldrain.com/api/file)
           ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | cut -d '"' -f4)
 
@@ -88,28 +86,31 @@ jobs:
           echo "id=$ID" >> $GITHUB_OUTPUT
           echo "link=https://pixeldrain.com/u/${ID}" >> $GITHUB_OUTPUT
 
-      # ===== SAVE STATE (NO DUPLICATE) =====
+      # ===== SAVE STATE (Chỉ chạy nếu skip=false) =====
       - name: Save state
+        if: steps.check.outputs.skip != 'true'
         run: |
           FILE="${{ steps.rom.outputs.file }}"
           ID="${{ steps.pd.outputs.id }}"
 
+          # Xóa dòng cũ nếu có và thêm dòng mới
           grep -v -F "$FILE|" uploaded.txt > tmp.txt 2>/dev/null || true
           echo "$FILE|$ID" >> tmp.txt
           mv tmp.txt uploaded.txt
 
-      # ===== COMMIT =====
+      # ===== COMMIT (Chỉ chạy nếu skip=false) =====
       - name: Commit
+        if: steps.check.outputs.skip != 'true'
         run: |
           git config user.name "actions"
           git config user.email "actions@github.com"
-          git pull
           git add uploaded.txt
-          git commit -m "update list" || exit 0
+          git commit -m "Update state: ${{ steps.rom.outputs.file }}" || exit 0
           git push
 
-      # ===== TELEGRAM =====
+      # ===== TELEGRAM (Chỉ chạy nếu skip=false) =====
       - name: Telegram
+        if: steps.check.outputs.skip != 'true'
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -117,11 +118,11 @@ jobs:
           FILE="${{ steps.rom.outputs.file }}"
           LINK="${{ steps.pd.outputs.link }}"
 
-          TEXT="<b>Socrates ROM</b>
-          $FILE
-          <a href=\"$LINK\">Download</a>"
+          # Sử dụng %0A để xuống dòng trong URL Telegram
+          TEXT="<b>Socrates ROM Found!</b>%0A<code>$FILE</code>%0A%0A<a href=\"$LINK\">👉 Download từ Pixeldrain</a>"
 
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d chat_id="${CHAT_ID}" \
             -d text="$TEXT" \
-            -d parse_mode="HTML"
+            -d parse_mode="HTML" \
+            -d disable_web_page_preview="true"
