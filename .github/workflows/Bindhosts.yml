@@ -27,12 +27,12 @@ jobs:
           JSON=$(curl -s https://api.github.com/repos/bindhosts/bindhosts/releases/latest)
           
           TAG=$(echo "$JSON" | jq -r '.tag_name')
-          # Lấy URL tải của asset đầu tiên (thường là file zip)
-          DL_URL=$(echo "$JSON" | jq -r '.assets[0].browser_download_url')
+          # Lấy link trực tiếp tới file Source Code (.zip) của GitHub
+          DL_URL="https://github.com/bindhosts/bindhosts/archive/refs/tags/${TAG}.zip"
           HTML_URL=$(echo "$JSON" | jq -r '.html_url')
           
           if [ "$TAG" = "null" ] || [ -z "$TAG" ]; then
-            echo "Không tìm thấy thông tin phiên bản."
+            echo "Lỗi: Không lấy được thông tin TAG từ GitHub API."
             exit 1
           fi
 
@@ -55,21 +55,21 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      # ===== DOWNLOAD (ÉP TÊN FILE CỐ ĐỊNH) =====
+      # ===== DOWNLOAD (TẢI TRỰC TIẾP ZIP) =====
       - name: Download Asset
         if: steps.check.outputs.skip != 'true'
         run: |
-          # Chúng ta tải file và đặt tên cố định là bindhosts_latest.zip để dễ quản lý
-          curl -L -o "bindhosts_latest.zip" "${{ steps.bindhosts.outputs.dl_url }}"
+          # Tải file zip của phiên bản đó
+          curl -L -o "bindhosts_${{ steps.bindhosts.outputs.tag }}.zip" "${{ steps.bindhosts.outputs.dl_url }}"
           
-          # Kiểm tra file vừa tải
-          if [ ! -f "bindhosts_latest.zip" ]; then
-            echo "LỖI: File không tồn tại sau khi tải!"
+          # Kiểm tra sự tồn tại của file
+          if [ ! -f "bindhosts_${{ steps.bindhosts.outputs.tag }}.zip" ]; then
+            echo "LỖI: Không thể tải được file zip từ GitHub!"
             exit 1
           fi
           
-          echo "File đã tải thành công:"
-          ls -lh bindhosts_latest.zip
+          echo "Danh sách file hiện tại:"
+          ls -lh *.zip
 
       # ===== TELEGRAM UPLOAD =====
       - name: Upload to Telegram
@@ -80,12 +80,13 @@ jobs:
         run: |
           TAG="${{ steps.bindhosts.outputs.tag }}"
           URL="${{ steps.bindhosts.outputs.html_url }}"
+          FILE="bindhosts_${TAG}.zip"
           
           CAPTION="<b>🚀 Bindhosts New Update!</b>%0A%0AVersion: <code>$TAG</code>%0A%0A<a href=\"$URL\">🔗 Xem chi tiết trên GitHub</a>"
 
-          # Sử dụng tên file cố định bindhosts_latest.zip
+          # Sử dụng đường dẫn tuyệt đối biến FILE
           curl -v -F chat_id="${CHAT_ID}" \
-               -F document=@"./bindhosts_latest.zip" \
+               -F document=@"./$FILE" \
                -F caption="$CAPTION" \
                -F parse_mode="HTML" \
                "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument"
