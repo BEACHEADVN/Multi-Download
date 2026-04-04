@@ -62,7 +62,7 @@ jobs:
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_USER_ID }}
           context: |
-            <b>Repository:</b> <a href="https://github.com/${{ github.repository }}">${{ github.repository }}</a>
+            <b>https://github.com/bindhosts/bindhosts/a>
           parse_mode: HTML
           method: sendMessage
 
