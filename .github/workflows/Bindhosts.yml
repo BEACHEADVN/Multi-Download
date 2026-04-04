@@ -1,0 +1,98 @@
+name: Check and Upload Bindhosts Update
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *" # 12:00 PM giờ Việt Nam (UTC+7)
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ===== PULL STATE =====
+      - name: Pull latest
+        run: |
+          git pull origin main || true
+
+      # ===== GET LATEST RELEASE INFO =====
+      - name: Get Latest Release
+        id: bindhosts
+        run: |
+          # Lấy thông tin JSON từ GitHub API
+          JSON=$(curl -s https://api.github.com/repos/bindhosts/bindhosts/releases/latest)
+          
+          TAG=$(echo "$JSON" | jq -r '.tag_name')
+          # Lấy link tải file đầu tiên trong danh sách assets (thường là file cài đặt)
+          DL_URL=$(echo "$JSON" | jq -r '.assets[0].browser_download_url')
+          FILE_NAME=$(echo "$JSON" | jq -r '.assets[0].name')
+          HTML_URL=$(echo "$JSON" | jq -r '.html_url')
+          
+          if [ "$TAG" = "null" ] || [ -z "$TAG" ]; then
+            echo "Không tìm thấy phiên bản nào."
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "dl_url=$DL_URL" >> $GITHUB_OUTPUT
+          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
+          echo "html_url=$HTML_URL" >> $GITHUB_OUTPUT
+
+      # ===== CHECK STATE =====
+      - name: Check State
+        id: check
+        run: |
+          TAG="${{ steps.bindhosts.outputs.tag }}"
+          STATE_FILE="bindhosts_state.txt"
+          touch $STATE_FILE
+          LAST_TAG=$(cat $STATE_FILE)
+
+          if [ "$TAG" = "$LAST_TAG" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Phiên bản $TAG đã tồn tại. Bỏ qua."
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Phát hiện phiên bản mới: $TAG"
+          fi
+
+      # ===== DOWNLOAD (Chỉ chạy nếu có bản mới) =====
+      - name: Download Asset
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          curl -L -o "${{ steps.bindhosts.outputs.file_name }}" "${{ steps.bindhosts.outputs.dl_url }}"
+
+      # ===== TELEGRAM UPLOAD FILE (Chỉ chạy nếu có bản mới) =====
+      - name: Upload to Telegram
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          TAG="${{ steps.bindhosts.outputs.tag }}"
+          FILE="${{ steps.bindhosts.outputs.file_name }}"
+          URL="${{ steps.bindhosts.outputs.html_url }}"
+          
+          CAPTION="<b>🚀 Bindhosts New Update!</b>%0A%0AVersion: <code>$TAG</code>%0A%0A<a href=\"$URL\">🔗 Xem chi tiết trên GitHub</a>"
+
+          # Gửi file đính kèm kèm theo caption
+          curl -v -F chat_id="${CHAT_ID}" \
+               -F document=@"$FILE" \
+               -F caption="$CAPTION" \
+               -F parse_mode="HTML" \
+               "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument"
+
+      # ===== SAVE & COMMIT (Chỉ chạy nếu có bản mới) =====
+      - name: Save new state
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          echo "${{ steps.bindhosts.outputs.tag }}" > bindhosts_state.txt
+          git config user.name "actions"
+          git config user.email "actions@github.com"
+          git add bindhosts_state.txt
+          git commit -m "Update bindhosts state to ${{ steps.bindhosts.outputs.tag }}" || exit 0
+          git push
