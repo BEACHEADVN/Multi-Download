@@ -25,13 +25,10 @@ jobs:
         run: |
           JSON=$(curl -s https://api.github.com/repos/bindhosts/bindhosts/releases/latest)
           TAG=$(echo "$JSON" | jq -r '.tag_name')
-          
-          # Tìm đúng Asset có tên là bindhosts.zip
           DL_URL=$(echo "$JSON" | jq -r '.assets[] | select(.name == "bindhosts.zip") | .browser_download_url')
           HTML_URL=$(echo "$JSON" | jq -r '.html_url')
 
           if [ -z "$DL_URL" ] || [ "$DL_URL" = "null" ]; then
-            echo "Dùng link fallback..."
             DL_URL="https://github.com/bindhosts/bindhosts/archive/refs/tags/${TAG}.zip"
           fi
 
@@ -47,41 +44,52 @@ jobs:
           STATE_FILE="bindhosts_state.txt"
           touch $STATE_FILE
           LAST_TAG=$(cat $STATE_FILE)
+          if [ "$TAG" = "$LAST_TAG" ]; then echo "skip=true" >> $GITHUB_OUTPUT; else echo "skip=false" >> $GITHUB_OUTPUT; fi
 
-          if [ "$TAG" = "$LAST_TAG" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-
-      # ===== DOWNLOAD & VERIFY =====
+      # ===== DOWNLOAD =====
       - name: Download Asset
         if: steps.check.outputs.skip != 'true'
         run: |
           curl -L -o "bindhosts.zip" "${{ steps.bindhosts.outputs.dl_url }}"
-          if [ ! -f "bindhosts.zip" ]; then exit 1; fi
           ls -lh bindhosts.zip
 
-      # ===== TELEGRAM UPLOAD (SỬA LỖI ĐƯỜNG DẪN) =====
-      - name: Upload to Telegram
+      # ===== TELEGRAM UPLOAD (SỬ DỤNG PYTHON) =====
+      - name: Upload to Telegram via Python
         if: steps.check.outputs.skip != 'true'
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ steps.bindhosts.outputs.tag }}
+          URL: ${{ steps.bindhosts.outputs.html_url }}
+        shell: python
         run: |
-          TAG="${{ steps.bindhosts.outputs.tag }}"
-          URL="${{ steps.bindhosts.outputs.html_url }}"
-          CAPTION="<b>🚀 Bindhosts New Update!</b>%0A%0AVersion: <code>$TAG</code>%0A%0A<a href=\"$URL\">🔗 Xem chi tiết trên GitHub</a>"
+          import os
+          import requests
 
-          # THAY ĐỔI CHIẾN THUẬT:
-          # 1. Không dùng biến đường dẫn phức tạp trong lệnh curl
-          # 2. Dùng @file trực tiếp với tên file trần
+          bot_token = os.environ['BOT_TOKEN']
+          chat_id = os.environ['CHAT_ID']
+          tag = os.environ['TAG']
+          url = os.environ['URL']
+          file_path = "bindhosts.zip"
+
+          caption = f"<b>🚀 Bindhosts New Update!</b>\n\nVersion: <code>{tag}</code>\n\n<a href='{url}'>🔗 Xem chi tiết trên GitHub</a>"
           
-          curl -v -F chat_id="${CHAT_ID}" \
-               -F document=@bindhosts.zip \
-               -F caption="$CAPTION" \
-               -F parse_mode="HTML" \
-               "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument"
+          print(f"Đang gửi file: {file_path}...")
+          
+          with open(file_path, 'rb') as f:
+              files = {'document': f}
+              data = {
+                  'chat_id': chat_id,
+                  'caption': caption,
+                  'parse_mode': 'HTML'
+              }
+              response = requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=data, files=files)
+              
+          if response.status_code == 200:
+              print("Gửi Telegram thành công!")
+          else:
+              print(f"Lỗi gửi Telegram: {response.text}")
+              exit(1)
 
       # ===== SAVE & COMMIT =====
       - name: Save new state
