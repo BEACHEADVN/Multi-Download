@@ -62,7 +62,7 @@ jobs:
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_USER_ID }}
           context: |
-            <a href="https://github.com/bindhosts/bindhosts">🔗 Xem chi tiết trên GitHub</a>
+            <a href="https://github.com/bindhosts/bindhosts">https://github.com/bindhosts/bindhosts</a>
           parse_mode: HTML
           method: sendMessage
 
