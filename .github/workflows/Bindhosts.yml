@@ -20,23 +20,49 @@ jobs:
         run: git pull origin main || true
 
       # ===== GET LATEST RELEASE INFO =====
-      - name: Get Latest Release
-        id: bindhosts
+      - name: Get Release Info (Safe Mode)
+        id: info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: python
         run: |
-          JSON=$(curl -s https://api.github.com/repos/bindhosts/bindhosts/releases/latest)
-          TAG=$(echo "$JSON" | jq -r '.tag_name')
-          
-          # Tìm đúng Asset có tên là bindhosts.zip
-          DL_URL=$(echo "$JSON" | jq -r '.assets[] | select(.name == "bindhosts.zip") | .browser_download_url')
-          HTML_URL=$(echo "$JSON" | jq -r '.html_url')
-
-          if [ -z "$DL_URL" ] || [ "$DL_URL" = "null" ]; then
-            DL_URL="https://github.com/bindhosts/bindhosts/archive/refs/tags/${TAG}.zip"
-          fi
-
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "dl_url=$DL_URL" >> $GITHUB_OUTPUT
-          echo "html_url=$HTML_URL" >> $GITHUB_OUTPUT
+            import os, requests, json
+            
+            repo = "sidex15/susfs4ksu-module"
+            headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
+            
+            try:
+                # Lấy dữ liệu Release từ GitHub
+                response = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", headers=headers)
+                data = response.json()
+                
+                tag = data.get('tag_name', '')
+                date = data.get('published_at', data.get('created_at', ''))
+                
+                # Tìm asset zip
+                assets = data.get('assets', [])
+                zip_asset = next((a for a in assets if a['name'].endswith('.zip')), None)
+                
+                if zip_asset:
+                    file_name = zip_asset['name']
+                    dl_url = zip_asset['browser_download_url']
+                    size = zip_asset['size']
+                else:
+                    file_name = f"susfs4ksu-{tag}.zip"
+                    dl_url = f"https://github.com/{repo}/archive/refs/tags/{tag}.zip"
+                    size = 0
+                
+                # Ghi dữ liệu ra GITHUB_OUTPUT an toàn
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                    f.write(f"tag={tag}\n")
+                    f.write(f"file_name={file_name}\n")
+                    f.write(f"dl_url={dl_url}\n")
+                    f.write(f"size={size}\n")
+                    f.write(f"date={date}\n")
+                    
+            except Exception as e:
+                print(f"CRITICAL ERROR: {e}")
+                exit(1)
 
       # ===== CHECK STATE =====
       - name: Check State
