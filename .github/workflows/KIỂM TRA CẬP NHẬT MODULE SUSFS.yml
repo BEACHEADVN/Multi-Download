@@ -16,28 +16,49 @@ jobs:
       - name: Pull latest
         run: git pull origin main || true
 
-      - name: Get Release
+      - name: Get Release Info (Safe Mode)
         id: info
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: python
         run: |
-          JSON=$(curl -s -H "Authorization: token $GH_TOKEN" https://api.github.com/repos/sidex15/susfs4ksu-module/releases/latest)
-          TAG=$(echo "$JSON" | jq -r '.tag_name // empty')
-          ASSET=$(echo "$JSON" | jq -r '.assets[] | select(.name | endswith(".zip"))' | head -n 1)
-          FILE_NAME=$(echo "$ASSET" | jq -r '.name // empty')
-          DL_URL=$(echo "$ASSET" | jq -r '.browser_download_url // empty')
-          SIZE=$(echo "$ASSET" | jq -r '.size // 0')
-          DATE=$(echo "$JSON" | jq -r '.published_at // empty')
-
-          if [ -z "$FILE_NAME" ] || [ "$FILE_NAME" = "null" ]; then
-            FILE_NAME="susfs4ksu-${TAG}.zip"
-            DL_URL="https://github.com/sidex15/susfs4ksu-module/archive/refs/tags/${TAG}.zip"
-          fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
-          echo "dl_url=$DL_URL" >> $GITHUB_OUTPUT
-          echo "size=$SIZE" >> $GITHUB_OUTPUT
-          echo "date=$DATE" >> $GITHUB_OUTPUT
+            import os, requests, json
+            
+            repo = "sidex15/susfs4ksu-module"
+            headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
+            
+            try:
+                # Lấy dữ liệu Release từ GitHub
+                response = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", headers=headers)
+                data = response.json()
+                
+                tag = data.get('tag_name', '')
+                date = data.get('published_at', data.get('created_at', ''))
+                
+                # Tìm asset zip
+                assets = data.get('assets', [])
+                zip_asset = next((a for a in assets if a['name'].endswith('.zip')), None)
+                
+                if zip_asset:
+                    file_name = zip_asset['name']
+                    dl_url = zip_asset['browser_download_url']
+                    size = zip_asset['size']
+                else:
+                    file_name = f"susfs4ksu-{tag}.zip"
+                    dl_url = f"https://github.com/{repo}/archive/refs/tags/{tag}.zip"
+                    size = 0
+                
+                # Ghi dữ liệu ra GITHUB_OUTPUT an toàn
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                    f.write(f"tag={tag}\n")
+                    f.write(f"file_name={file_name}\n")
+                    f.write(f"dl_url={dl_url}\n")
+                    f.write(f"size={size}\n")
+                    f.write(f"date={date}\n")
+                    
+            except Exception as e:
+                print(f"CRITICAL ERROR: {e}")
+                exit(1)
 
       - name: Check State
         id: check
@@ -58,10 +79,33 @@ jobs:
         run: |
           import os, requests, datetime
           def get_size(b):
+              b = int(b)
               for unit in ['B','KB','MB']:
                   if b < 1024: return f"{b:.2f} {unit}"
                   b /= 1024
+          
           tag, file_name = "${{ steps.info.outputs.tag }}", "${{ steps.info.outputs.file_name }}"
-          size = get_size(int("${{ steps.info.outputs.size }}"))
-          date_obj = datetime.datetime.strptime("${{ steps.info.outputs.date }}", "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(hours=7)
-          caption = f"<b>🚀 SUSFS Module Update!</b>\n\
+          size = get_size("${{ steps.info.outputs.size }}")
+          date_raw = "${{ steps.info.outputs.date }}"
+          
+          try:
+              date_obj = datetime.datetime.strptime(date_raw, "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(hours=7)
+              date_str = date_obj.strftime("%d/%m/%Y %H:%M")
+          except:
+              date_str = "N/A"
+
+          caption = f"<b>🚀 SUSFS Module Update!</b>\n\n📦 Phiên bản: <code>{tag}</code>\n📊 Dung lượng: <code>{size}</code>\n📅 Cập nhật: <code>{date_str}</code>"
+          
+          with open(file_name, 'rb') as f:
+              requests.post(f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendDocument", 
+                            data={'chat_id': os.environ['CHAT_ID'], 'caption': caption, 'parse_mode': 'HTML'}, 
+                            files={'document': (file_name, f)})
+
+      - name: Save State
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          echo "${{ steps.info.outputs.tag }}" > susfs_state.txt
+          git config user.name "actions"
+          git config user.email "actions@github.com"
+          git add susfs_state.txt
+          git commit -m "Update SUSFS to ${{ steps.info.outputs.tag }}" && git push
