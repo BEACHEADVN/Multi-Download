@@ -1,0 +1,67 @@
+name: Check SUSFS Module Update
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *" # 12:00 PM VN
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull latest
+        run: git pull origin main || true
+
+      - name: Get Release
+        id: info
+        run: |
+          JSON=$(curl -s https://api.github.com/repos/sidex15/susfs4ksu-module/releases/latest)
+          TAG=$(echo "$JSON" | jq -r '.tag_name')
+          FILE_NAME=$(echo "$JSON" | jq -r '.assets[] | select(.name | endswith(".zip")) | .name' | head -n 1)
+          DL_URL=$(echo "$JSON" | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' | head -n 1)
+          
+          if [ -z "$FILE_NAME" ] || [ "$FILE_NAME" = "null" ]; then
+            FILE_NAME="susfs4ksu-${TAG}.zip"
+            DL_URL="https://github.com/sidex15/susfs4ksu-module/archive/refs/tags/${TAG}.zip"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
+          echo "dl_url=$DL_URL" >> $GITHUB_OUTPUT
+
+      - name: Check State
+        id: check
+        run: |
+          touch susfs_state.txt
+          if [ "${{ steps.info.outputs.tag }}" = "$(cat susfs_state.txt)" ]; then echo "skip=true" >> $GITHUB_OUTPUT; fi
+
+      - name: Download
+        if: steps.check.outputs.skip != 'true'
+        run: curl -L -o "${{ steps.info.outputs.file_name }}" "${{ steps.info.outputs.dl_url }}"
+
+      - name: Telegram
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: python
+        run: |
+          import os, requests
+          tag, file_name = "${{ steps.info.outputs.tag }}", "${{ steps.info.outputs.file_name }}"
+          caption = f"<b>🚀 SUSFS Module Update!</b>\n\nVersion: <code>{tag}</code>"
+          with open(file_name, 'rb') as f:
+              requests.post(f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendDocument", 
+                            data={'chat_id': os.environ['CHAT_ID'], 'caption': caption, 'parse_mode': 'HTML'}, 
+                            files={'document': (file_name, f)})
+
+      - name: Save
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          echo "${{ steps.info.outputs.tag }}" > susfs_state.txt
+          git config user.name "actions"
+          git config user.email "actions@github.com"
+          git add susfs_state.txt
+          git commit -m "Update SUSFS to ${{ steps.info.outputs.tag }}" && git push
