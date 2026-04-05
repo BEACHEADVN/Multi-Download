@@ -3,8 +3,7 @@ name: Check SUSFS Module Update
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 5 * * *" # 12:00 PM VN
-
+    - cron: "0 * * * *" # Chạy vào phút thứ 0 của mỗi giờ
 permissions:
   contents: write
 
