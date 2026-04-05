@@ -1,4 +1,4 @@
-name: Check and Upload Bindhosts Update
+name: Bindhosts
 
 on:
   workflow_dispatch:
