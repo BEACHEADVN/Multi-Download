@@ -55,7 +55,15 @@ jobs:
             ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n 1 | cut -d '|' -f2)
             
             # Kiểm tra xem file trên Pixeldrain còn sống không
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://pixeldrain.com/api/file/$ID)
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" -L "$URL")
+            if [ "$STATUS" == "404" ]; then
+               echo "File thực sự đã bị xóa."
+               # Tiến hành upload lại
+            elif [ "$STATUS" == "200" ]; then
+               echo "File vẫn ngon."
+            else
+               echo "Lỗi server ($STATUS), chờ 5s rồi thử lại..."
+            fi
             
             if [ "$STATUS" = "200" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
