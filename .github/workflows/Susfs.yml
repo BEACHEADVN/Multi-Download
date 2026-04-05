@@ -1,4 +1,4 @@
-name: Check SUSFS Module Update
+name: SUSFS Module
 
 on:
   workflow_dispatch:
