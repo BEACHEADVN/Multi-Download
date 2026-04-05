@@ -1,4 +1,4 @@
-name: Check and Upload Integrity-Box Update
+name: Integrity-Box
 
 on:
   workflow_dispatch:
