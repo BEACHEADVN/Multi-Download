@@ -71,7 +71,7 @@ jobs:
         run: curl -L -o "${{ steps.info.outputs.file_name }}" "${{ steps.info.outputs.dl_url }}"
 
       - name: Send Notification to Telegram
-        if: success()
+        if: steps.check.outputs.skip != 'true'
         uses: xireiki/channel-post@v1
         with:
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
