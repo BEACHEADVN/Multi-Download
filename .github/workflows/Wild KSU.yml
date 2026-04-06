@@ -1,4 +1,4 @@
-name: Wild_KSU
+name: Wild_KSU Manager Dual-Build Checker
 
 on:
   workflow_dispatch:
@@ -17,14 +17,14 @@ jobs:
       - name: Pull latest
         run: git pull origin main || true
 
-      # ===== LẤY THÔNG TIN APK MỚI NHẤT =====
+      # ===== LẤY THÔNG TIN CẢ 2 BẢN APK =====
       - name: Get Latest Release
         id: wild_ksu
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: python
         run: |
-            import os, requests
+            import os, requests, json
             repo = "WildKernels/Wild_KSU"
             headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
             try:
@@ -35,23 +35,27 @@ jobs:
                 html_url = data.get('html_url', '')
                 
                 assets = data.get('assets', [])
-                # Ưu tiên tìm file có đuôi .apk
-                apk_asset = next((a for a in assets if a['name'].endswith(".apk")), None)
+                # Tìm tất cả các file .apk
+                apk_assets = [a for a in assets if a['name'].endswith(".apk")]
                 
-                if apk_asset:
-                    file_name = apk_asset['name']
-                    dl_url = apk_asset['browser_download_url']
-                    size = apk_asset['size']
-                else:
-                    # Nếu không thấy APK, thông báo lỗi hoặc bỏ qua
-                    print("No APK found in the latest release!"); exit(1)
+                if not apk_assets:
+                    print("No APK found!"); exit(1)
+                
+                # Tạo list thông tin asset để truyền sang step sau
+                asset_info = []
+                for a in apk_assets:
+                    asset_info.append({
+                        "name": a['name'],
+                        "url": a['browser_download_url'],
+                        "size": a['size']
+                    })
                 
                 with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                    f.write(f"tag={tag}\nfile_name={file_name}\ndl_url={dl_url}\nsize={size}\ndate={date}\nhtml_url={html_url}\n")
+                    f.write(f"tag={tag}\ndate={date}\nhtml_url={html_url}\nassets_json={json.dumps(asset_info)}\n")
             except Exception as e:
                 print(f"Error: {e}"); exit(1)
 
-      # ===== KIỂM TRA PHIÊN BẢN ĐÃ LƯU =====
+      # ===== KIỂM TRA PHIÊN BẢN =====
       - name: Check State
         id: check
         run: |
@@ -62,26 +66,19 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      # ===== TẢI APK TỪ GITHUB =====
-      - name: Download APK
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          curl -L -o "${{ steps.wild_ksu.outputs.file_name }}" "${{ steps.wild_ksu.outputs.dl_url }}"
-
-      # ===== GỬI APK QUA TELEGRAM =====
-      - name: Upload APK to Telegram
+      # ===== TẢI VÀ GỬI CẢ 2 FILE QUA TELEGRAM =====
+      - name: Upload APKs to Telegram
         if: steps.check.outputs.skip != 'true'
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TAG: ${{ steps.wild_ksu.outputs.tag }}
           URL: ${{ steps.wild_ksu.outputs.html_url }}
-          SIZE: ${{ steps.wild_ksu.outputs.size }}
           DATE: ${{ steps.wild_ksu.outputs.date }}
-          FILE_NAME: ${{ steps.wild_ksu.outputs.file_name }}
+          ASSETS_JSON: ${{ steps.wild_ksu.outputs.assets_json }}
         shell: python
         run: |
-          import os, requests, datetime
+          import os, requests, datetime, json
           
           def get_size(b):
               b = int(b)
@@ -93,29 +90,42 @@ jobs:
           bot_token = os.environ['BOT_TOKEN']
           chat_id = os.environ['CHAT_ID']
           tag, url = os.environ['TAG'], os.environ['URL']
-          size = get_size(os.environ['SIZE'])
-          file_name = os.environ['FILE_NAME']
+          assets = json.loads(os.environ['ASSETS_JSON'])
           
           try:
               date_obj = datetime.datetime.strptime(os.environ['DATE'], "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(hours=7)
               date_str = date_obj.strftime("%d/%m/%Y %H:%M")
           except: date_str = "N/A"
 
-          caption = (f"<b>📱 Wild_KSU Manager New Update!</b>\n\n"
+          # Soạn nội dung tin nhắn tổng hợp
+          caption = (f"<b>📱 Wild_KSU Manager Update!</b>\n"
+                     f"━━━━━━━━━━━━━━━━━━\n"
                      f"📦 Version: <code>{tag}</code>\n"
-                     f"📊 Size: <code>{size}</code>\n"
-                     f"📅 Date: <code>{date_str}</code> (VN)\n\n"
-                     f"💡 <i>Bạn có thể cài đặt trực tiếp file APK này.</i>\n\n"
-                     f"<a href='{url}'>🔗 Changelog on GitHub</a>")
+                     f"📅 Date: <code>{date_str}</code> (VN)\n\n")
           
-          with open(file_name, 'rb') as f:
-              files = {'document': (file_name, f)}
-              data = {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}
-              r = requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=data, files=files)
-              if r.status_code != 200:
-                  print(r.text); exit(1)
+          for a in assets:
+              caption += f"🔹 <b>{a['name']}</b>\n      └ 📊 Size: <code>{get_size(a['size'])}</code>\n"
+          
+          caption += f"\n<a href='{url}'>🔗 View Changelog on GitHub</a>"
 
-      # ===== LƯU LẠI PHIÊN BẢN ĐÃ GỬI =====
+          # Gửi file đầu tiên kèm Caption
+          # Gửi các file tiếp theo dưới dạng group (hoặc riêng lẻ để kèm text)
+          for i, a in enumerate(assets):
+              print(f"Downloading {a['name']}...")
+              r_dl = requests.get(a['url'])
+              with open(a['name'], 'wb') as f:
+                  f.write(r_dl.content)
+              
+              with open(a['name'], 'rb') as f:
+                  files = {'document': (a['name'], f)}
+                  # Chỉ file đầu tiên mới gửi kèm Caption đầy đủ
+                  payload = {'chat_id': chat_id, 'parse_mode': 'HTML'}
+                  if i == 0:
+                      payload['caption'] = caption
+                  
+                  requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=payload, files=files)
+
+      # ===== LƯU TRẠNG THÁI =====
       - name: Save new state
         if: steps.check.outputs.skip != 'true'
         run: |
@@ -123,6 +133,6 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           echo "${{ steps.wild_ksu.outputs.tag }}" > wild_ksu_manager_state.txt
           git add wild_ksu_manager_state.txt
-          git commit -m "Update Wild_KSU Manager state to ${{ steps.wild_ksu.outputs.tag }}" || exit 0
+          git commit -m "Update Wild_KSU Manager to ${{ steps.wild_ksu.outputs.tag }}" || exit 0
           git pull --rebase origin main
           git push origin main
