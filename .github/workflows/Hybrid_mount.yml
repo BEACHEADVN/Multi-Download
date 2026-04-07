@@ -1,4 +1,4 @@
-name: Hybrid-Mount Update Checker
+name: Hybrid-Mount
 
 on:
   workflow_dispatch:
