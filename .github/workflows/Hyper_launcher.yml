@@ -1,0 +1,130 @@
+name: HyperOS Launcher Module Checker
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+permissions:
+  contents: write
+
+jobs:
+  check-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull latest state
+        run: git pull origin main || true
+
+      # ===== LẤY THÔNG TIN RELEASE (FILE ZIP) =====
+      - name: Get Latest Release
+        id: hyperos_launcher
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: python
+        run: |
+            import os, requests
+            repo = "Mods-Center/HyperOS-Launcher"
+            headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
+            try:
+                response = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", headers=headers)
+                data = response.json()
+                tag = data.get('tag_name', '')
+                date = data.get('published_at', '')
+                html_url = data.get('html_url', '')
+                
+                assets = data.get('assets', [])
+                # Tìm file .zip (Module), bỏ qua các bản debug nếu có
+                zip_asset = next((a for a in assets if a['name'].endswith(".zip") and "debug" not in a['name'].lower()), None)
+                
+                if zip_asset:
+                    file_name = zip_asset['name']
+                    dl_url = zip_asset['browser_download_url']
+                    size = zip_asset['size']
+                else:
+                    print("No official ZIP module found!"); exit(1)
+                
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                    f.write(f"tag={tag}\nfile_name={file_name}\ndl_url={dl_url}\nsize={size}\ndate={date}\nhtml_url={html_url}\n")
+            except Exception as e:
+                print(f"Error: {e}"); exit(1)
+
+      # ===== KIỂM TRA TRẠNG THÁI =====
+      - name: Check State
+        id: check
+        run: |
+          touch hyperos_launcher_state.txt
+          if [ "${{ steps.hyperos_launcher.outputs.tag }}" = "$(cat hyperos_launcher_state.txt)" ]; then 
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else 
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ===== TẢI MODULE ZIP =====
+      - name: Download Module
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          curl -L -o "${{ steps.hyperos_launcher.outputs.file_name }}" "${{ steps.hyperos_launcher.outputs.dl_url }}"
+
+      # ===== GỬI TELEGRAM VỚI NAME CARD MODULE =====
+      - name: Upload to Telegram
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ steps.hyperos_launcher.outputs.tag }}
+          URL: ${{ steps.hyperos_launcher.outputs.html_url }}
+          SIZE: ${{ steps.hyperos_launcher.outputs.size }}
+          DATE: ${{ steps.hyperos_launcher.outputs.date }}
+          FILE_NAME: ${{ steps.hyperos_launcher.outputs.file_name }}
+        shell: python
+        run: |
+          import os, requests, datetime
+          
+          def get_size(b):
+              b = int(b)
+              for unit in ['B','KB','MB']:
+                  if b < 1024: return f"{b:.2f} {unit}"
+                  b /= 1024
+              return f"{b:.2f} MB"
+
+          bot_token = os.environ['BOT_TOKEN']
+          chat_id = os.environ['CHAT_ID']
+          tag, url = os.environ['TAG'], os.environ['URL']
+          size = get_size(os.environ['SIZE'])
+          file_name = os.environ['FILE_NAME']
+          
+          try:
+              date_obj = datetime.datetime.strptime(os.environ['DATE'], "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(hours=7)
+              date_str = date_obj.strftime("%d/%m/%Y %H:%M")
+          except: date_str = "N/A"
+
+          # Name Card Format cho HyperOS Launcher Module
+          caption = (f"<b>📦 HyperOS Launcher Module</b>\n"
+                     f"<i>Magisk/KernelSU Flashable Zip</i>\n"
+                     f"━━━━━━━━━━━━━━━━━━\n"
+                     f"🚀 <b>Phiên bản:</b> <code>{tag}</code>\n"
+                     f"📊 <b>Dung lượng:</b> <code>{size}</code>\n"
+                     f"📅 <b>Cập nhật:</b> <code>{date_str}</code> (VN)\n\n"
+                     f"🔗 <b>Repo:</b> <a href='https://github.com/Mods-Center/HyperOS-Launcher'>Mods-Center/HyperOS-Launcher</a>\n"
+                     f"📝 <a href='{url}'>Xem Changelog tại GitHub</a>")
+          
+          with open(file_name, 'rb') as f:
+              files = {'document': (file_name, f)}
+              data = {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}
+              r = requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=data, files=files)
+              if r.status_code != 200:
+                  print(r.text); exit(1)
+
+      # ===== LƯU TRẠNG THÁI =====
+      - name: Save new state
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "${{ steps.hyperos_launcher.outputs.tag }}" > hyperos_launcher_state.txt
+          git add hyperos_launcher_state.txt
+          git commit -m "Update HyperOS Launcher Module to ${{ steps.hyperos_launcher.outputs.tag }}" || exit 0
+          git pull --rebase origin main
+          git push origin main
