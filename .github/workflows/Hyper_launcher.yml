@@ -67,6 +67,17 @@ jobs:
         run: |
           curl -L -o "${{ steps.hyperos_launcher.outputs.file_name }}" "${{ steps.hyperos_launcher.outputs.dl_url }}"
 
+      - name: Send Notification to Telegram
+        if: steps.check.outputs.skip != 'true'
+        uses: xireiki/channel-post@v1
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_USER_ID }}
+          context: |
+            https://github.com/Mods-Center/HyperOS-Launcher
+          parse_mode: HTML
+          method: sendMessage
+
       # ===== GỬI TELEGRAM VỚI NAME CARD MODULE =====
       - name: Upload to Telegram
         if: steps.check.outputs.skip != 'true'
