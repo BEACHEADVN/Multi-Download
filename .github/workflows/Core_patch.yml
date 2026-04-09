@@ -1,0 +1,129 @@
+name: CorePatch Update Checker
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *" # Kiểm tra mỗi giờ
+permissions:
+  contents: write
+
+jobs:
+  check-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull latest state
+        run: git pull origin main || true
+
+      # ===== LẤY THÔNG TIN RELEASE (COREPATCH APK) =====
+      - name: Get Latest Release
+        id: corepatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: python
+        run: |
+            import os, requests
+            repo = "LSPosed/CorePatch"
+            headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
+            try:
+                response = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", headers=headers)
+                data = response.json()
+                tag = data.get('tag_name', '')
+                date = data.get('published_at', '')
+                html_url = data.get('html_url', '')
+                
+                assets = data.get('assets', [])
+                # Tìm file .apk, ưu tiên bản release (không chứa 'debug')
+                apk_asset = next((a for a in assets if a['name'].endswith(".apk") and "debug" not in a['name'].lower()), None)
+                
+                if apk_asset:
+                    file_name = apk_asset['name']
+                    dl_url = apk_asset['browser_download_url']
+                    size = apk_asset['size']
+                else:
+                    print("No official APK found!"); exit(1)
+                
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                    f.write(f"tag={tag}\nfile_name={file_name}\ndl_url={dl_url}\nsize={size}\ndate={date}\nhtml_url={html_url}\n")
+            except Exception as e:
+                print(f"Error: {e}"); exit(1)
+
+      # ===== KIỂM TRA TRẠNG THÁI =====
+      - name: Check State
+        id: check
+        run: |
+          touch corepatch_state.txt
+          if [ "${{ steps.corepatch.outputs.tag }}" = "$(cat corepatch_state.txt)" ]; then 
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else 
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ===== TẢI APK =====
+      - name: Download APK
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          curl -L -o "${{ steps.corepatch.outputs.file_name }}" "${{ steps.corepatch.outputs.dl_url }}"
+
+      # ===== GỬI TELEGRAM VỚI NAME CARD LPOSED STYLE =====
+      - name: Upload to Telegram
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ steps.corepatch.outputs.tag }}
+          URL: ${{ steps.corepatch.outputs.html_url }}
+          SIZE: ${{ steps.corepatch.outputs.size }}
+          DATE: ${{ steps.corepatch.outputs.date }}
+          FILE_NAME: ${{ steps.corepatch.outputs.file_name }}
+        shell: python
+        run: |
+          import os, requests, datetime
+          
+          def get_size(b):
+              b = int(b)
+              for unit in ['B','KB','MB']:
+                  if b < 1024: return f"{b:.2f} {unit}"
+                  b /= 1024
+              return f"{b:.2f} MB"
+
+          bot_token = os.environ['BOT_TOKEN']
+          chat_id = os.environ['CHAT_ID']
+          tag, url = os.environ['TAG'], os.environ['URL']
+          size = get_size(os.environ['SIZE'])
+          file_name = os.environ['FILE_NAME']
+          
+          try:
+              date_obj = datetime.datetime.strptime(os.environ['DATE'], "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(hours=7)
+              date_str = date_obj.strftime("%d/%m/%Y %H:%M")
+          except: date_str = "N/A"
+
+          # Name Card Format cho CorePatch
+          caption = (f"<b>🛠 CorePatch New Update</b>\n"
+                     f"📦 <b>Phiên bản:</b> <code>{tag}</code>\n"
+                     f"📊 <b>Dung lượng:</b> <code>{size}</code>\n"
+                     f"📅 <b>Cập nhật:</b> <code>{date_str}</code> (VN)\n\n"
+                     f"🔗 <b>Developer:</b> <a href='https://github.com/LSPosed'>LSPosed Team</a>\n"
+                     f"🏠 <b>Repo:</b> <a href='https://github.com/LSPosed/CorePatch'>LSPosed/CorePatch</a>\n\n"
+                     f"📝 <a href='{url}'>Xem chi tiết trên GitHub</a>")
+          
+          with open(file_name, 'rb') as f:
+              files = {'document': (file_name, f)}
+              data = {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}
+              r = requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=data, files=files)
+              if r.status_code != 200:
+                  print(r.text); exit(1)
+
+      # ===== LƯU TRẠNG THÁI =====
+      - name: Save new state
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "${{ steps.corepatch.outputs.tag }}" > corepatch_state.txt
+          git add corepatch_state.txt
+          git commit -m "Update CorePatch state to ${{ steps.corepatch.outputs.tag }}" || exit 0
+          git pull --rebase origin main
+          git push origin main
