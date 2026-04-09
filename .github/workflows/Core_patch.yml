@@ -1,4 +1,4 @@
-name: CorePatch Update Checker
+name: CorePatch
 
 on:
   workflow_dispatch:
