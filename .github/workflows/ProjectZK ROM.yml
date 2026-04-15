@@ -1,0 +1,138 @@
+name: ProjectZK ROM
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull latest
+        run: git pull origin main || true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 curl jq
+
+      # ===== LẤY THÔNG TIN ROM PROJECTZK =====
+      - name: Get Latest ROM
+        id: rom
+        run: |
+          BASE_URL="https://sourceforge.net/projects/projectzk/files/ProjectZK/ZK-EU/ZKOS3.0/"
+          HTML=$(curl -sL "$BASE_URL")
+
+          # Lọc file dành cho Socrates (K60 Pro) của ProjectZK
+          FILE=$(echo "$HTML" | grep -o 'ProjectZK_SOCRATES[^"]*zip' | sort -V | tail -n 1)
+          URL="https://downloads.sourceforge.net/project/projectzk/ProjectZK/ZK-EU/ZKOS3.0/$FILE"
+
+          if [ -z "$FILE" ]; then
+            echo "No file found!"; exit 1
+          fi
+
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      # ===== KIỂM TRA TRẠNG THÁI TRÊN PIXELDRAIN =====
+      - name: Check Uploaded State
+        id: check
+        run: |
+          FILE="${{ steps.rom.outputs.file }}"
+          STATE_FILE="projectzk_uploaded.txt"
+          touch $STATE_FILE
+
+          if grep -Fq "$FILE|" "$STATE_FILE"; then
+            ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d '|' -f2)
+            API="https://pixeldrain.com/api/file/$ID/info"
+            RESPONSE=$(curl -s "$API")
+            SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+
+            if [ "$SUCCESS" = "true" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+            else
+              echo "skip=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ===== TẢI ROM (ARIA2) =====
+      - name: Download ROM
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          aria2c -x 16 -s 16 -k 1M --continue=true \
+            -o "${{ steps.rom.outputs.file }}" \
+            "${{ steps.rom.outputs.url }}"
+
+      # ===== UPLOAD LÊN PIXELDRAIN =====
+      - name: Upload to Pixeldrain
+        if: steps.check.outputs.skip != 'true'
+        id: pd
+        env:
+          PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+        run: |
+          FILE="${{ steps.rom.outputs.file }}"
+          RESPONSE=$(curl -u ":$PD_API_KEY" -F "file=@${FILE}" https://pixeldrain.com/api/file)
+          ID=$(echo "$RESPONSE" | jq -r '.id')
+
+          if [ "$ID" = "null" ] || [ -z "$ID" ]; then
+            echo "Upload failed"; exit 1
+          fi
+
+          # Lấy thêm thông tin dung lượng để hiển thị trong Telegram
+          SIZE_RAW=$(ls -lh "$FILE" | awk '{print $5}')
+          echo "id=$ID" >> $GITHUB_OUTPUT
+          echo "size=$SIZE_RAW" >> $GITHUB_OUTPUT
+          echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
+
+      # ===== GỬI THÔNG BÁO TELEGRAM (NAME CARD) =====
+      - name: Send Telegram Notification
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          FILE="${{ steps.rom.outputs.file }}"
+          LINK="${{ steps.pd.outputs.link }}"
+          SIZE="${{ steps.pd.outputs.size }}"
+          
+          CAPTION="<b>✨ ProjectZK New Update</b>%0A"
+          CAPTION+="<i>Socrates (K60 Pro) EU Edition</i>%0A"
+          CAPTION+="━━━━━━━━━━━━━━━━━━%0A"
+          CAPTION+="📦 <b>File:</b> <code>$FILE</code>%0A"
+          CAPTION+="📊 <b>Dung lượng:</b> <code>$SIZE</code>%0A"
+          CAPTION+="📅 <b>Trạng thái:</b> <code>Mirrored to Pixeldrain</code>%0A%0A"
+          CAPTION+="🔗 <a href=\"$LINK\">Tải xuống ngay (Pixeldrain)</a>"
+
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="$CAPTION" \
+            -d parse_mode="HTML" \
+            -d disable_web_page_preview="true"
+
+      # ===== LƯU STATE =====
+      - name: Save State
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          FILE="${{ steps.rom.outputs.file }}"
+          ID="${{ steps.pd.outputs.id }}"
+          STATE_FILE="projectzk_uploaded.txt"
+
+          sed -i "\|^$FILE|d" "$STATE_FILE"
+          echo "$FILE|$ID" >> "$STATE_FILE"
+
+          git add "$STATE_FILE"
+          git commit -m "Mirror: $FILE" || exit 0
+          git pull --rebase origin main
+          git push origin main
