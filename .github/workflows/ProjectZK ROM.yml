@@ -1,4 +1,4 @@
-name: ProjectZK ROM
+name: ProjectZK ROM Mirror
 
 on:
   workflow_dispatch:
@@ -23,33 +23,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y aria2 curl jq
 
-      # ===== LẤY THÔNG TIN ROM PROJECTZK =====
-      # ===== GET ROM =====
+      # ===== LẤY THÔNG TIN ROM PROJECTZK (MỚI) =====
       - name: Get Latest ROM
         id: rom
         run: |
-          # Sử dụng RSS feed để lấy danh sách file chính xác và nhanh nhất
+          # Sử dụng RSS feed để lấy link trực tiếp và chính xác nhất
           RSS_URL="https://sourceforge.net/projects/projectzk/rss?path=/ProjectZK/ZK-EU/ZKOS3.0"
           XML=$(curl -sL "$RSS_URL")
-      
-          # Lọc file có chứa chữ SOCRATES và đuôi .zip
-          # RSS của SourceForge trả về link dạng /projects/projectzk/files/.../tên_file.zip/download
-          FILE_PATH=$(echo "$XML" | grep -oP '/ProjectZK/ZK-EU/ZKOS3.0/ZKOS_SOCRATES[^<]*\.zip' | head -n 1)
           
-          if [ -z "$FILE_PATH" ]; then
-            echo "❌ Không tìm thấy file ZKOS cho Socrates!"
+          # Lọc link tuyệt đối có chứa SOCRATES và đuôi .zip
+          URL_FULL=$(echo "$XML" | grep -oP 'https://sourceforge.net/projects/projectzk/files/[^<]*ZKOS_SOCRATES[^<]*\.zip' | head -n 1)
+
+          if [ -z "$URL_FULL" ]; then
+            echo "❌ Không tìm thấy link file trên RSS!"
             exit 1
           fi
-      
-          # Tách lấy tên file từ đường dẫn
-          FILE=$(basename "$FILE_PATH")
+
+          # Trích xuất tên file
+          FILE=$(basename "$URL_FULL")
           
-          # Tạo URL download chuẩn
-          URL="https://downloads.sourceforge.net/project/projectzk${FILE_PATH}"
-      
+          # Chuyển đổi sang link download trực tiếp cho aria2
+          URL=$(echo "$URL_FULL" | sed 's/sourceforge.net\/projects/downloads.sourceforge.net\/project/')
+
           echo "Tìm thấy file: $FILE"
-          echo "URL: $URL"
-      
           echo "file=$FILE" >> $GITHUB_OUTPUT
           echo "url=$URL" >> $GITHUB_OUTPUT
 
@@ -69,8 +65,10 @@ jobs:
 
             if [ "$SUCCESS" = "true" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
+              echo "File đã tồn tại trên Pixeldrain -> SKIP"
             else
               echo "skip=false" >> $GITHUB_OUTPUT
+              echo "File đã bị xóa hoặc lỗi -> Re-upload"
             fi
           else
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -99,7 +97,6 @@ jobs:
             echo "Upload failed"; exit 1
           fi
 
-          # Lấy thêm thông tin dung lượng để hiển thị trong Telegram
           SIZE_RAW=$(ls -lh "$FILE" | awk '{print $5}')
           echo "id=$ID" >> $GITHUB_OUTPUT
           echo "size=$SIZE_RAW" >> $GITHUB_OUTPUT
@@ -116,7 +113,7 @@ jobs:
           LINK="${{ steps.pd.outputs.link }}"
           SIZE="${{ steps.pd.outputs.size }}"
           
-          CAPTION="<b>✨ ProjectZK New Update</b>%0A"
+          CAPTION="<b>✨ ZKOS - ProjectZK Update</b>%0A"
           CAPTION+="<i>Socrates (K60 Pro) EU Edition</i>%0A"
           CAPTION+="━━━━━━━━━━━━━━━━━━%0A"
           CAPTION+="📦 <b>File:</b> <code>$FILE</code>%0A"
@@ -130,7 +127,7 @@ jobs:
             -d parse_mode="HTML" \
             -d disable_web_page_preview="true"
 
-      # ===== LƯU STATE =====
+      # ===== LƯU STATE VÀ PUSH =====
       - name: Save State
         if: steps.check.outputs.skip != 'true'
         run: |
@@ -141,10 +138,11 @@ jobs:
           ID="${{ steps.pd.outputs.id }}"
           STATE_FILE="projectzk_uploaded.txt"
 
+          # Xóa dòng cũ nếu có và ghi đè dòng mới
           sed -i "\|^$FILE|d" "$STATE_FILE"
           echo "$FILE|$ID" >> "$STATE_FILE"
 
           git add "$STATE_FILE"
-          git commit -m "Mirror: $FILE" || exit 0
+          git commit -m "Mirror ZKOS: $FILE" || exit 0
           git pull --rebase origin main
           git push origin main
