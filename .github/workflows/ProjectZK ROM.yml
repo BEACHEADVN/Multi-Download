@@ -23,52 +23,60 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y aria2 curl jq
 
-      # ===== LẤY THÔNG TIN ROM PROJECTZK (PYTHON LOGIC) =====
+      # ===== LẤY THÔNG TIN ROM PROJECTZK (SIÊU LỌC PYTHON) =====
       - name: Get Latest ROM
         id: rom
         shell: python
         run: |
             import os, requests, re, xml.etree.ElementTree as ET
 
+            # Đường dẫn RSS chính xác của thư mục
             rss_url = "https://sourceforge.net/projects/projectzk/rss?path=/ProjectZK/ZK-EU/ZKOS3.0"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            
             try:
-                # Giả lập User-Agent để tránh bị SourceForge chặn
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
                 response = requests.get(rss_url, headers=headers, timeout=30)
-                
-                # Parse XML từ RSS
                 root = ET.fromstring(response.content)
                 
-                links = []
+                # Tìm tất cả các link có khả năng chứa file
+                potential_links = []
                 for item in root.findall('.//item'):
-                    link_node = item.find('link')
-                    if link_node is not None:
-                        links.append(link_node.text)
+                    # Kiểm tra link, guid và title vì SourceForge đôi khi giấu link ở các chỗ khác nhau
+                    for tag in ['link', 'guid', 'title']:
+                        node = item.find(tag)
+                        if node is not None and node.text:
+                            potential_links.append(node.text)
                 
-                # Regex linh hoạt để tìm link Socrates .zip
-                pattern = re.compile(r'ZKOS_SOCRATES.*\.zip', re.IGNORECASE)
+                # Regex tìm file ZKOS dành cho SOCRATES
+                # Cho phép mọi ký tự bao quanh chữ SOCRATES miễn là kết thúc bằng .zip
+                pattern = re.compile(r'.*SOCRATES.*\.zip', re.IGNORECASE)
                 
-                target_url = None
-                for l in links:
-                    if pattern.search(l):
-                        # Đảm bảo lấy link sạch, loại bỏ phần /download nếu có
-                        target_url = l.split('/download')[0]
-                        break
+                final_file_url = None
+                for link in potential_links:
+                    if pattern.search(link):
+                        # Làm sạch link (xóa /download hoặc các tham số truy vấn)
+                        clean_url = link.split('/download')[0].split('?')[0]
+                        if clean_url.startswith('http'):
+                            final_file_url = clean_url
+                            break
                 
-                if not target_url:
-                    print("❌ Không tìm thấy link SOCRATES trong RSS!"); exit(1)
+                if not final_file_url:
+                    print("❌ Không tìm thấy bất kỳ file SOCRATES nào trong RSS!")
+                    print("Nội dung RSS nhận được (một phần):", response.text[:500])
+                    exit(1)
                 
-                file_name = target_url.split('/')[-1]
-                # Chuyển đổi sang link download trực tiếp cho aria2
-                download_url = target_url.replace("sourceforge.net/projects", "downloads.sourceforge.net/project")
+                file_name = final_file_url.split('/')[-1]
+                # Chuyển sang link downloads để aria2 tải ổn định nhất
+                download_url = final_file_url.replace("sourceforge.net/projects", "downloads.sourceforge.net/project")
                 
                 with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                     f.write(f"file={file_name}\nurl={download_url}\n")
                 
-                print(f"✅ Tìm thấy: {file_name}")
+                print(f"✅ Thành công! Tìm thấy: {file_name}")
+                print(f"🔗 Link: {download_url}")
                 
             except Exception as e:
-                print(f"❌ Lỗi: {e}"); exit(1)
+                print(f"❌ Lỗi hệ thống: {e}"); exit(1)
 
       # ===== KIỂM TRA TRẠNG THÁI TRÊN PIXELDRAIN =====
       - name: Check Uploaded State
@@ -86,10 +94,10 @@ jobs:
 
             if [ "$SUCCESS" = "true" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
-              echo "File đã tồn tại trên Pixeldrain -> SKIP"
+              echo "File vẫn tồn tại trên Pixeldrain -> SKIP"
             else
               echo "skip=false" >> $GITHUB_OUTPUT
-              echo "File đã bị xóa hoặc lỗi -> Re-upload"
+              echo "File đã mất -> Re-upload"
             fi
           else
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -123,7 +131,7 @@ jobs:
           echo "size=$SIZE_RAW" >> $GITHUB_OUTPUT
           echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
 
-      # ===== GỬI THÔNG BÁO TELEGRAM (NAME CARD) =====
+      # ===== GỬI THÔNG BÁO TELEGRAM =====
       - name: Send Telegram Notification
         if: steps.check.outputs.skip != 'true'
         env:
@@ -148,7 +156,7 @@ jobs:
             -d parse_mode="HTML" \
             -d disable_web_page_preview="true"
 
-      # ===== LƯU STATE VÀ PUSH =====
+      # ===== LƯU STATE =====
       - name: Save State
         if: steps.check.outputs.skip != 'true'
         run: |
