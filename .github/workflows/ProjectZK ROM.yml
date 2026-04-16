@@ -1,4 +1,4 @@
-name: ProjectZK ROM Mirror
+name: ProjectZK ROM
 
 on:
   workflow_dispatch:
@@ -23,60 +23,46 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y aria2 curl jq
 
-      # ===== LẤY THÔNG TIN ROM PROJECTZK (SIÊU LỌC PYTHON) =====
+      # ===== LẤY THÔNG TIN QUA JSON API (ỔN ĐỊNH NHẤT) =====
       - name: Get Latest ROM
         id: rom
         shell: python
         run: |
-            import os, requests, re, xml.etree.ElementTree as ET
+            import os, requests
 
-            # Đường dẫn RSS chính xác của thư mục
-            rss_url = "https://sourceforge.net/projects/projectzk/rss?path=/ProjectZK/ZK-EU/ZKOS3.0"
-            headers = {'User-Agent': 'Mozilla/5.0'}
+            # Sử dụng API JSON của SourceForge để lấy danh sách file trong thư mục
+            folder_url = "https://sourceforge.net/projects/projectzk/files/ProjectZK/ZK-EU/ZKOS3.0/json"
             
             try:
-                response = requests.get(rss_url, headers=headers, timeout=30)
-                root = ET.fromstring(response.content)
+                response = requests.get(folder_url, timeout=30)
+                data = response.json()
                 
-                # Tìm tất cả các link có khả năng chứa file
-                potential_links = []
-                for item in root.findall('.//item'):
-                    # Kiểm tra link, guid và title vì SourceForge đôi khi giấu link ở các chỗ khác nhau
-                    for tag in ['link', 'guid', 'title']:
-                        node = item.find(tag)
-                        if node is not None and node.text:
-                            potential_links.append(node.text)
+                # 'files' trong JSON chứa danh sách tất cả tệp tin
+                files = data.get('files', [])
                 
-                # Regex tìm file ZKOS dành cho SOCRATES
-                # Cho phép mọi ký tự bao quanh chữ SOCRATES miễn là kết thúc bằng .zip
-                pattern = re.compile(r'.*SOCRATES.*\.zip', re.IGNORECASE)
+                # Lọc file có chữ SOCRATES và là file zip
+                socrates_files = [f for f in files if "SOCRATES" in f['name'].upper() and f['name'].endswith(".zip")]
                 
-                final_file_url = None
-                for link in potential_links:
-                    if pattern.search(link):
-                        # Làm sạch link (xóa /download hoặc các tham số truy vấn)
-                        clean_url = link.split('/download')[0].split('?')[0]
-                        if clean_url.startswith('http'):
-                            final_file_url = clean_url
-                            break
-                
-                if not final_file_url:
-                    print("❌ Không tìm thấy bất kỳ file SOCRATES nào trong RSS!")
-                    print("Nội dung RSS nhận được (một phần):", response.text[:500])
+                if not socrates_files:
+                    print("❌ Không tìm thấy file SOCRATES nào trong JSON API!")
                     exit(1)
                 
-                file_name = final_file_url.split('/')[-1]
-                # Chuyển sang link downloads để aria2 tải ổn định nhất
-                download_url = final_file_url.replace("sourceforge.net/projects", "downloads.sourceforge.net/project")
+                # Sắp xếp theo thời gian (mới nhất lên đầu)
+                socrates_files.sort(key=lambda x: x['mtime'], reverse=True)
+                latest_file = socrates_files[0]
+                
+                file_name = latest_file['name']
+                # Xây dựng link download trực tiếp
+                # Link: https://downloads.sourceforge.net/project/projectzk/ProjectZK/ZK-EU/ZKOS3.0/Tên_File.zip
+                download_url = f"https://downloads.sourceforge.net/project/projectzk/ProjectZK/ZK-EU/ZKOS3.0/{file_name}"
                 
                 with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                     f.write(f"file={file_name}\nurl={download_url}\n")
                 
-                print(f"✅ Thành công! Tìm thấy: {file_name}")
-                print(f"🔗 Link: {download_url}")
+                print(f"✅ Tìm thấy qua API: {file_name}")
                 
             except Exception as e:
-                print(f"❌ Lỗi hệ thống: {e}"); exit(1)
+                print(f"❌ Lỗi API: {e}"); exit(1)
 
       # ===== KIỂM TRA TRẠNG THÁI TRÊN PIXELDRAIN =====
       - name: Check Uploaded State
@@ -131,7 +117,7 @@ jobs:
           echo "size=$SIZE_RAW" >> $GITHUB_OUTPUT
           echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
 
-      # ===== GỬI THÔNG BÁO TELEGRAM =====
+      # ===== GỬI THÔNG BÁO TELEGRAM (NAME CARD) =====
       - name: Send Telegram Notification
         if: steps.check.outputs.skip != 'true'
         env:
@@ -142,7 +128,7 @@ jobs:
           LINK="${{ steps.pd.outputs.link }}"
           SIZE="${{ steps.pd.outputs.size }}"
           
-          CAPTION="<b>✨ ZKOS - ProjectZK Update</b>%0A"
+          CAPTION="<b>✨ ProjectZK New Update</b>%0A"
           CAPTION+="<i>Socrates (K60 Pro) EU Edition</i>%0A"
           CAPTION+="━━━━━━━━━━━━━━━━━━%0A"
           CAPTION+="📦 <b>File:</b> <code>$FILE</code>%0A"
