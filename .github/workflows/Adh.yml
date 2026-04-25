@@ -1,4 +1,4 @@
-name: Kemono Ultimate Fix Downloader
+name: Kemono Ultimate Fix Downloader (v2)
 
 on:
   workflow_dispatch:
@@ -13,12 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ===== BƯỚC QUAN TRỌNG: FIX DNS =====
       - name: Fix DNS Resolution
         run: |
           sudo echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf > /dev/null
-          sudo echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf > /dev/null
-          ping -c 2 kemono.su || true
+          sudo echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf > /dev/null
 
       - name: Install dependencies
         run: |
@@ -26,14 +24,12 @@ jobs:
           sudo apt-get install -y curl jq
           pip install requests
 
-      # ===== TẢI FILE BẰNG PYTHON (API BẢN .SU) =====
       - name: Fetch and Download
         id: scraper
         shell: python
         run: |
             import os, requests, sys, urllib.parse, time
 
-            # Sử dụng domain .su thay vì .cr để tránh lỗi phân giải DNS
             service = "patreon"
             user_id = "131186049"
             post_id = "117252586"
@@ -42,50 +38,60 @@ jobs:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'application/json',
-                'Referer': 'https://kemono.su/'
+                'Referer': f'https://kemono.su/{service}/user/{user_id}/post/{post_id}'
             }
 
+            response = None
             try:
                 print(f"📡 Đang kết nối tới API: {api_url}")
-                # Thử lại 3 lần nếu gặp lỗi kết nối
                 for i in range(3):
                     try:
-                        response = requests.get(api_url, headers=headers, timeout=30)
-                        if response.status_code == 200: break
-                    except:
-                        time.sleep(5)
+                        # Thêm timeout và allow_redirects
+                        response = requests.get(api_url, headers=headers, timeout=30, allow_redirects=True)
+                        if response.status_code == 200:
+                            break
+                        print(f"⚠️ Lần thử {i+1} thất bại (Status: {response.status_code})")
+                    except Exception as e:
+                        print(f"⚠️ Lần thử {i+1} lỗi kết nối: {e}")
+                    time.sleep(10) # Tăng thời gian chờ giữa các lần thử
                 
-                if response.status_code != 200:
-                    print(f"❌ API vẫn lỗi (Status: {response.status_code})")
-                    # In thử nội dung lỗi để xem có phải bị Cloudflare chặn không
-                    print(f"Nội dung phản hồi: {response.text[:500]}")
+                if response is None or response.status_code != 200:
+                    status = response.status_code if response else "No Response"
+                    print(f"❌ API không phản hồi hoặc lỗi (Status: {status})")
+                    if response: print(f"Nội dung: {response.text[:500]}")
                     sys.exit(1)
                 
                 data = response.json()
-                post_data = data[0] if isinstance(data, list) else data
-                attachments = post_data.get('attachments', [])
+                post_data = data[0] if isinstance(data, list) and len(data) > 0 else data
                 
-                # Thêm file chính vào danh sách tải nếu có
+                if not post_data or 'attachments' not in post_data:
+                    # Nếu là post không có đính kèm nhưng có file chính
+                    attachments = []
+                else:
+                    attachments = post_data.get('attachments', [])
+                
                 main_file = post_data.get('file')
                 if main_file and main_file.get('path'):
                     attachments.append(main_file)
 
                 if not attachments:
-                    print("❌ Không tìm thấy file nào trong bài viết này!")
+                    print("❌ Không tìm thấy file đính kèm nào!")
                     sys.exit(1)
 
                 downloaded_files = []
+                # Thử danh sách server đa dạng hơn
+                servers = ["https://n4.kemono.su", "https://n3.kemono.su", "https://n5.kemono.su", "https://kemono.su"]
+                
                 for file_info in attachments:
                     path = file_info.get('path')
                     name = file_info.get('name') or path.split('/')[-1]
+                    # Clean tên file khỏi ký tự đặc biệt
+                    name = "".join([c for c in name if c.isalnum() or c in "._- "]).strip()
                     
-                    # Thử các server data khác nhau (n4, n3, n5 hoặc server chính)
-                    servers = ["https://n4.kemono.su", "https://n3.kemono.su", "https://kemono.su"]
                     success = False
-                    
                     for srv in servers:
                         dl_url = f"{srv}/data{path}?f={urllib.parse.quote(name)}"
-                        print(f"⏳ Đang thử tải từ: {srv}")
+                        print(f"⏳ Thử tải {name} từ server: {srv}")
                         try:
                             with requests.get(dl_url, headers=headers, stream=True, timeout=60) as r:
                                 if r.status_code == 200:
@@ -93,12 +99,19 @@ jobs:
                                         for chunk in r.iter_content(chunk_size=8192):
                                             f.write(chunk)
                                     success = True
+                                    print(f"✅ OK: {name}")
                                     break
-                        except: continue
+                                else:
+                                    print(f"❌ Server {srv} báo lỗi {r.status_code}")
+                        except:
+                            continue
                     
                     if success:
-                        print(f"✅ Tải thành công: {name}")
                         downloaded_files.append(name)
+
+                if not downloaded_files:
+                    print("❌ Không có file nào được tải thành công!")
+                    sys.exit(1)
 
                 with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                     f.write(f"files={','.join(downloaded_files)}\n")
@@ -107,7 +120,6 @@ jobs:
                 print(f"❌ Lỗi hệ thống: {e}")
                 sys.exit(1)
 
-      # ===== UPLOAD LÊN PIXELDRAIN =====
       - name: Upload to Pixeldrain
         env:
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
