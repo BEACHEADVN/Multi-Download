@@ -1,7 +1,7 @@
-name: Kemono File Downloader (No Telegram)
+name: Kemono File Downloader (Fixed)
 
 on:
-  workflow_dispatch: # Chạy thủ công từ tab Actions
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,23 +16,30 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 curl jq
+          sudo apt-get install -y curl jq
 
-      # ===== TẢI FILE =====
+      # ===== TẢI FILE VỚI REFERER VÀ USER-AGENT =====
       - name: Download File
         id: dl
         run: |
-          # URL từ yêu cầu của bạn
           URL="https://n4.kemono.cr/data/c6/6f/c66fbfcc3f6aedd89bdf9347bcd556221436b47a6be071048fcf3871b97def99.zip?f=%5B4KB%5DN132+White+Bikini_74.zip"
-          
-          # Tên file đầu ra
           FILE_NAME="N132_White_Bikini_74.zip"
           
-          echo "Đang tải file từ Kemono..."
-          # Sử dụng User-Agent để tránh bị server chặn
-          aria2c -x 16 -s 16 -k 1M --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-            -o "$FILE_NAME" "$URL"
+          echo "Đang tải file bằng curl..."
           
+          # Kemono yêu cầu Referer là trang chủ hoặc trang post của họ để cho phép tải
+          curl -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+               -H "Referer: https://kemono.cr/" \
+               -o "$FILE_NAME" \
+               "$URL"
+
+          # Kiểm tra xem file có thực sự có dung lượng không
+          if [ ! -s "$FILE_NAME" ]; then
+            echo "❌ Lỗi: File tải về bị trống (0KB). Link có thể đã hết hạn."
+            exit 1
+          fi
+          
+          echo "✅ Tải xong. Dung lượng: $(ls -lh "$FILE_NAME" | awk '{print $5}')"
           echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
 
       # ===== UPLOAD LÊN PIXELDRAIN =====
@@ -45,10 +52,8 @@ jobs:
           
           echo "Đang upload lên Pixeldrain..."
           if [ -z "$PD_API_KEY" ]; then
-            # Upload ẩn danh nếu không có API Key
             RESPONSE=$(curl -F "file=@${FILE}" https://pixeldrain.com/api/file)
           else
-            # Upload vào tài khoản nếu có API Key
             RESPONSE=$(curl -u ":$PD_API_KEY" -F "file=@${FILE}" https://pixeldrain.com/api/file)
           fi
           
@@ -56,7 +61,7 @@ jobs:
           
           if [ "$ID" = "null" ] || [ -z "$ID" ]; then
             echo "❌ Upload thất bại!"
-            echo "Response: $RESPONSE"
+            echo "$RESPONSE"
             exit 1
           fi
           
