@@ -1,4 +1,4 @@
-name: Kemono Ultimate Fix Downloader (v2)
+name: Kemono Ultimate DNS Fixer
 
 on:
   workflow_dispatch:
@@ -13,10 +13,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fix DNS Resolution
+      # ===== BƯỚC QUAN TRỌNG: TỰ ĐỘNG GIẢI MÃ IP VÀ TRỎ HOSTS =====
+      - name: Force DNS Mapping
         run: |
-          sudo echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf > /dev/null
-          sudo echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf > /dev/null
+          echo "🔍 Đang truy tìm IP của Kemono qua DNS-over-HTTPS..."
+          
+          # Hỏi Google DNS qua HTTPS để lấy IP chính xác của kemono.su và n4.kemono.su
+          K_IP=$(curl -sH "accept: application/dns-json" "https://8.8.8.8/resolve?name=kemono.su&type=A" | jq -r '.Answer[0].data')
+          N4_IP=$(curl -sH "accept: application/dns-json" "https://8.8.8.8/resolve?name=n4.kemono.su&type=A" | jq -r '.Answer[0].data')
+          N3_IP=$(curl -sH "accept: application/dns-json" "https://8.8.8.8/resolve?name=n3.kemono.su&type=A" | jq -r '.Answer[0].data')
+
+          if [ "$K_IP" != "null" ]; then
+            echo "✅ Tìm thấy IP Kemono: $K_IP"
+            echo "$K_IP kemono.su" | sudo tee -a /etc/hosts
+          fi
+          
+          if [ "$N4_IP" != "null" ]; then
+            echo "✅ Tìm thấy IP N4 Server: $N4_IP"
+            echo "$N4_IP n4.kemono.su" | sudo tee -a /etc/hosts
+          fi
+
+          if [ "$N3_IP" != "null" ]; then
+            echo "✅ Tìm thấy IP N3 Server: $N3_IP"
+            echo "$N3_IP n3.kemono.su" | sudo tee -a /etc/hosts
+          fi
+          
+          echo "--- Kiểm tra kết nối ---"
+          ping -c 1 kemono.su || echo "⚠️ Vẫn chưa ping được nhưng sẽ thử tiếp bằng Python"
 
       - name: Install dependencies
         run: |
@@ -38,86 +61,76 @@ jobs:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'application/json',
-                'Referer': f'https://kemono.su/{service}/user/{user_id}/post/{post_id}'
+                'Referer': f'https://kemono.su/'
             }
 
             response = None
             try:
                 print(f"📡 Đang kết nối tới API: {api_url}")
-                for i in range(3):
+                # Thử lại 5 lần vì DNS có thể cần thời gian để nhận diện
+                for i in range(5):
                     try:
-                        # Thêm timeout và allow_redirects
-                        response = requests.get(api_url, headers=headers, timeout=30, allow_redirects=True)
+                        response = requests.get(api_url, headers=headers, timeout=20, verify=False)
                         if response.status_code == 200:
                             break
-                        print(f"⚠️ Lần thử {i+1} thất bại (Status: {response.status_code})")
+                        print(f"⚠️ Lần {i+1}: Server trả về {response.status_code}")
                     except Exception as e:
-                        print(f"⚠️ Lần thử {i+1} lỗi kết nối: {e}")
-                    time.sleep(10) # Tăng thời gian chờ giữa các lần thử
+                        print(f"⚠️ Lần {i+1} lỗi: {e}")
+                    time.sleep(5)
                 
                 if response is None or response.status_code != 200:
-                    status = response.status_code if response else "No Response"
-                    print(f"❌ API không phản hồi hoặc lỗi (Status: {status})")
-                    if response: print(f"Nội dung: {response.text[:500]}")
+                    print(f"❌ Không thể kết nối API.")
                     sys.exit(1)
                 
                 data = response.json()
                 post_data = data[0] if isinstance(data, list) and len(data) > 0 else data
                 
-                if not post_data or 'attachments' not in post_data:
-                    # Nếu là post không có đính kèm nhưng có file chính
-                    attachments = []
-                else:
-                    attachments = post_data.get('attachments', [])
-                
+                attachments = post_data.get('attachments', [])
                 main_file = post_data.get('file')
                 if main_file and main_file.get('path'):
                     attachments.append(main_file)
 
                 if not attachments:
-                    print("❌ Không tìm thấy file đính kèm nào!")
+                    print("❌ Post này không có file đính kèm.")
                     sys.exit(1)
 
                 downloaded_files = []
-                # Thử danh sách server đa dạng hơn
-                servers = ["https://n4.kemono.su", "https://n3.kemono.su", "https://n5.kemono.su", "https://kemono.su"]
+                servers = ["https://n4.kemono.su", "https://n3.kemono.su", "https://kemono.su"]
                 
                 for file_info in attachments:
                     path = file_info.get('path')
-                    name = file_info.get('name') or path.split('/')[-1]
-                    # Clean tên file khỏi ký tự đặc biệt
-                    name = "".join([c for c in name if c.isalnum() or c in "._- "]).strip()
+                    original_name = file_info.get('name') or path.split('/')[-1]
+                    # Làm sạch tên file để tránh lỗi hệ thống
+                    clean_name = "".join([c for c in original_name if c.isalnum() or c in "._- "]).strip()
                     
                     success = False
                     for srv in servers:
-                        dl_url = f"{srv}/data{path}?f={urllib.parse.quote(name)}"
-                        print(f"⏳ Thử tải {name} từ server: {srv}")
+                        dl_url = f"{srv}/data{path}?f={urllib.parse.quote(original_name)}"
+                        print(f"⏳ Tải {clean_name} từ: {srv}")
                         try:
-                            with requests.get(dl_url, headers=headers, stream=True, timeout=60) as r:
+                            with requests.get(dl_url, headers=headers, stream=True, timeout=45, verify=False) as r:
                                 if r.status_code == 200:
-                                    with open(name, 'wb') as f:
+                                    with open(clean_name, 'wb') as f:
                                         for chunk in r.iter_content(chunk_size=8192):
                                             f.write(chunk)
                                     success = True
-                                    print(f"✅ OK: {name}")
+                                    print(f"✅ Xong: {clean_name}")
                                     break
-                                else:
-                                    print(f"❌ Server {srv} báo lỗi {r.status_code}")
                         except:
                             continue
                     
                     if success:
-                        downloaded_files.append(name)
+                        downloaded_files.append(clean_name)
 
                 if not downloaded_files:
-                    print("❌ Không có file nào được tải thành công!")
+                    print("❌ Không tải được file nào.")
                     sys.exit(1)
 
                 with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                     f.write(f"files={','.join(downloaded_files)}\n")
 
             except Exception as e:
-                print(f"❌ Lỗi hệ thống: {e}")
+                print(f"❌ Lỗi: {e}")
                 sys.exit(1)
 
       - name: Upload to Pixeldrain
