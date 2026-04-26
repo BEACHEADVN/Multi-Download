@@ -30,7 +30,7 @@ jobs:
           BASE_URL="https://sourceforge.net/projects/projectzk/files/ProjectZK/ZK-EU/ZKOS3/"
           HTML=$(curl -sL "$BASE_URL")
 
-          FILE=$(echo "$HTML" | grep -o ZKOS_SOCRATES[^"]*zip' | sort -V | tail -n 1)
+          FILE=$(echo "$HTML" | grep -o 'ZKOS_SOCRATES[^"]*zip' | sort -V | tail -n 1)
           URL="https://sourceforge.net/projects/projectzk/files/ProjectZK/ZK-EU/ZKOS3//$FILE"
 
           echo "file=$FILE" >> $GITHUB_OUTPUT
