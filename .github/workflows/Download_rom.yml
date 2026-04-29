@@ -27,11 +27,11 @@ jobs:
       - name: Get Latest ROM
         id: rom
         run: |
-          BASE_URL="https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/"
+          BASE_URL="https://sourceforge.net/projects/projectzk/files/ProjectZK/ZK-EU/ZKOS3/"
           HTML=$(curl -sL "$BASE_URL")
 
-          FILE=$(echo "$HTML" | grep -o 'xiaomi.eu_SOCRATES_OS3[^"]*zip' | sort -V | tail -n 1)
-          URL="https://downloads.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/$FILE"
+          FILE=$(echo "$HTML" | grep -o 'ZKOS_SOCRATES[^"]*zip' | sort -V | tail -n 1)
+          URL="https://downloads.sourceforge.net/project/projectzk/files/ProjectZK/ZK-EU/ZKOS3/$FILE"
 
           echo "file=$FILE" >> $GITHUB_OUTPUT
           echo "url=$URL" >> $GITHUB_OUTPUT
