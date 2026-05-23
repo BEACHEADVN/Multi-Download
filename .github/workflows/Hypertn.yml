@@ -1,9 +1,9 @@
-name: Test Find and Download First Valid File
+name: Auto Find and Download Latest MyROM (Bypass Quota)
 on:
   workflow_dispatch:
 
 jobs:
-  test-download:
+  download-rom:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -19,7 +19,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install gdown
 
-      - name: Parse Folder and Download First Valid File
+      - name: Parse Folder and Process Download
         id: gdrive
         run: |
           set -e
@@ -27,70 +27,66 @@ jobs:
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
           echo "=== ĐANG QUÉT DANH SÁCH FILE SỬ DỤNG GDOWN ==="
-          # Giới hạn gdown chạy trong 15 giây để in danh sách file ra log
+          # Quét cấu trúc cây thư mục trong 15 giây để xuất danh sách file ra log
           timeout 15s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > gdown_log.txt || true
 
-          echo "=== PHÂN TÍCH DANH SÁCH FILE THU ĐƯỢC ==="
-          # Lọc các dòng chứa file thực tế từ log thô
+          echo "=== PHÂN TÍCH DANH SÁCH FILE MỚI NHẤT ==="
           grep "Processing file" gdown_log.txt > files_list.txt || true
 
           if [ ! -s files_list.txt ]; then
-            echo "❌ Lỗi: Không thể trích xuất danh sách file từ log. Dưới đây là log thô để debug:"
-            cat gdown_log.txt
+            echo "❌ Lỗi: Không thể trích xuất danh sách file từ log."
             exit 1
           fi
 
-          echo "Danh sách các file tìm thấy trong thư mục:"
+          echo "Danh sách các file tìm thấy trong thư mục gốc:"
           cat files_list.txt
           echo "-------------------------------------------------------"
 
-          DOWNLOADED_SUCCESS=false
-          FINAL_FILE_NAME=""
+          # Chọn file mới nhất nằm ở dòng cuối cùng (Bản OS3.0.305.0_20260505.7z)
+          LATEST_LINE=$(tail -n 1 files_list.txt)
+          
+          FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
+          FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
 
-          # Đọc từng dòng trong danh sách file để tìm file có thể tải được
-          while IFS= read -r line || [ -n "$line" ]; do
-            # Tách lấy ID và Tên file từ log của gdown
-            FILE_ID=$(echo "$line" | awk '{print $3}')
-            FILE_NAME=$(echo "$line" | cut -d' ' -f4-)
+          echo "🎯 ĐÃ XÁC ĐỊNH FILE MỚI NHẤT CẦN TẢI:"
+          echo "Tên file: $FILE_NAME"
+          echo "ID File gốc: $FILE_ID"
+          echo "-------------------------------------------------------"
 
-            # Bỏ qua nếu là file Readme.md hoặc file cấu hình không cần thiết
-            if [[ "$FILE_NAME" == *"Readme"* || "$FILE_NAME" == *.md ]]; then
-              continue
-            fi
+          # Khởi tạo cấu hình rclone trực tiếp qua biến môi trường sử dụng Token của bạn
+          export RCLONE_CONFIG_MYDRIVE_TYPE="drive"
+          export RCLONE_CONFIG_MYDRIVE_SCOPE="drive"
+          export RCLONE_CONFIG_MYDRIVE_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
 
-            echo "🎯 Thử tải file: $FILE_NAME (ID: $FILE_ID)"
-            
-            # Tiến hành tải bằng cú pháp gdown chuẩn mới (không dùng tham số --id lỗi)
-            if gdown "https://drive.google.com/uc?id=$FILE_ID" -O "$FILE_NAME"; then
-              
-              # Kiểm tra dung lượng thực tế sau khi tải (yêu cầu lớn hơn 100KB để loại trừ file HTML 2.5K lỗi)
-              FILE_SIZE=$(stat -c%s "$FILE_NAME" 2>/dev/null || echo 0)
-              if [ "$FILE_SIZE" -gt 102400 ]; then
-                echo "✅ Tải thành công file gốc hợp lệ! Dung lượng: $(ls -lh "$FILE_NAME" | awk '{print $5}')"
-                DOWNLOADED_SUCCESS=true
-                FINAL_FILE_NAME="$FILE_NAME"
-                break
-              else
-                echo "⚠️ Cảnh báo: File tải về quá nhỏ ($FILE_SIZE bytes), có thể bị dính trang HTML chặn quota của Google. Đang xóa và thử file khác..."
-                rm -f "$FILE_NAME"
-              fi
-            else
-              echo "❌ gdown thất bại khi tải ID này. Đang thử file tiếp theo..."
-            fi
-            echo "-------------------------------------------------------"
-          done < files_list.txt
+          echo "=== KÍCH HOẠT THỦ THUẬT BYPASS QUOTA LIMIT ==="
+          echo "Tiến hành nhân bản file dính giới hạn sang Drive cá nhân của bạn..."
+          
+          # Thực hiện copy nội bộ trên server của Google (mất chưa tới 1 giây)
+          rclone backend copyid mydrive: "$FILE_ID" "Bypass_Temp_Folder" --drive-server-side-across-configs
 
-          # Kiểm tra nếu duyệt hết danh sách mà không tải được file nào
-          if [ "$DOWNLOADED_SUCCESS" = false ]; then
-            echo "❌ Thất bại: Tất cả các file trong thư mục đều bị Google Drive chặn giới hạn lượt tải (Quota Exceeded) hoặc lỗi!"
+          echo "Trích xuất ID của file mới vừa được tạo bản sao..."
+          MY_FILE_ID=$(rclone lsf mydrive:Bypass_Temp_Folder --format "id" | head -n 1)
+
+          if [ -z "$MY_FILE_ID" ]; then
+            echo "❌ Lỗi: Tạo bản sao file thất bại. Vui lòng kiểm tra lại trạng thái bộ nhớ Drive cá nhân."
             exit 1
           fi
 
-          # Dọn dẹp file tạm
+          echo "-> ID file sạch vừa tạo: $MY_FILE_ID"
+          echo "=== TIẾN HÀNH TẢI FILE GỐC VỚI BĂNG THÔNG TỐI ĐA ==="
+          
+          # Tải trực tiếp file từ Drive của bạn bằng cú pháp gdown mới chuẩn, bỏ qua lỗi hạn mức lượt tải
+          gdown "https://drive.google.com/uc?id=$MY_FILE_ID" -O "$FILE_NAME"
+
+          echo "-------------------------------------------------------"
+          echo "Dọn dẹp thư mục tạm trên Google Drive để giữ sạch bộ nhớ..."
+          rclone purge mydrive:Bypass_Temp_Folder
+
+          # Xóa các file nhật ký tạm trên Linux
           rm -f gdown_log.txt files_list.txt
           
           echo "Lưu đầu ra vào hệ thống..."
-          echo "filename=$FINAL_FILE_NAME" >> $GITHUB_OUTPUT
+          echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
 
       - name: Verify Downloaded File
         run: |
