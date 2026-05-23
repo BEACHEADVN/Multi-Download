@@ -61,14 +61,18 @@ jobs:
           export RCLONE_CONFIG_MYDRIVE_SCOPE="drive"
           export RCLONE_CONFIG_MYDRIVE_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
 
+          echo "=== LẤY ID THƯ MỤC GỐC GOOGLE DRIVE ==="
+          ROOT_DIR_ID=$(rclone lsf mydrive: --format "i" --max-depth 0 | tr -d '\r\n ')
+          echo "ID Thư mục gốc của bạn là: $ROOT_DIR_ID"
+
           echo "=== KÍCH HOẠT THỦ THUẬT BYPASS QUOTA LIMIT ==="
           echo "Tiến hành server-side sao chép file vào thư mục gốc My Drive..."
           
-          # Cấu hình một remote tạm thời chỉ định trực tiếp vào ID file nguồn, rồi thực hiện copy server-side sang thư mục gốc của mydrive
-          rclone copy mydrive:/ mydrive:/ --drive-root-folder-id="$FILE_ID" --drive-server-side-across-configs
+          # Thực hiện copy bằng ID file và ID thư mục đích thực tế vừa tìm được
+          rclone backend copyid mydrive: "$FILE_ID" "$ROOT_DIR_ID" --drive-server-side-across-configs
 
           echo "=== TIẾN HÀNH TẢI FILE VỀ GITHUB RUNNER ==="
-          # Tải file từ thư mục gốc của Google Drive về máy ảo
+          # Tải file từ Drive về máy ảo dựa trên bộ lọc tên file chuẩn xác
           rclone copy mydrive:/ . --include "$FILE_NAME" --progress
 
           echo "-------------------------------------------------------"
