@@ -19,6 +19,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install gdown
 
+      - name: Install rclone
+        run: |
+          echo "=== ĐANG CÀI ĐẶT RCLONE ==="
+          sudo -v ; curl https://rclone.org/install.sh | sudo bash
+
       - name: Parse Folder and Process Download
         id: gdrive
         run: |
@@ -31,18 +36,19 @@ jobs:
           timeout 15s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > gdown_log.txt || true
 
           echo "=== PHÂN TÍCH DANH SÁCH FILE MỚI NHẤT ==="
-          grep "Processing file" gdown_log.txt > files_list.txt || true
+          # Chỉ lọc các dòng chứa file có đuôi .7z (loại bỏ hoàn toàn Readme.md)
+          grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
 
           if [ ! -s files_list.txt ]; then
-            echo "❌ Lỗi: Không thể trích xuất danh sách file từ log."
+            echo "❌ Lỗi: Không thể trích xuất danh sách file ROM .7z từ log."
             exit 1
           fi
 
-          echo "Danh sách các file tìm thấy trong thư mục gốc:"
+          echo "Danh sách các file ROM tìm thấy trong thư mục gốc:"
           cat files_list.txt
           echo "-------------------------------------------------------"
 
-          # Chọn file mới nhất nằm ở dòng cuối cùng (Bản OS3.0.305.0_20260505.7z)
+          # Chọn file ROM mới nhất nằm ở dòng cuối cùng (Bản OS3.0.305.0_20260505.7z)
           LATEST_LINE=$(tail -n 1 files_list.txt)
           
           FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
