@@ -1,4 +1,4 @@
-name: Test Find and Download First File
+name: Test Find and Download First Valid File
 on:
   workflow_dispatch:
 
@@ -19,7 +19,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install gdown
 
-      - name: Parse Folder and Download First File
+      - name: Parse Folder and Download First Valid File
         id: gdrive
         run: |
           set -e
@@ -27,7 +27,7 @@ jobs:
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
           echo "=== ĐANG QUÉT DANH SÁCH FILE SỬ DỤNG GDOWN ==="
-          # Giới hạn gdown chạy trong 15 giây để nó kịp in cây danh sách file ra log
+          # Giới hạn gdown chạy trong 15 giây để in danh sách file ra log
           timeout 15s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > gdown_log.txt || true
 
           echo "=== PHÂN TÍCH DANH SÁCH FILE THU ĐƯỢC ==="
@@ -42,29 +42,55 @@ jobs:
 
           echo "Danh sách các file tìm thấy trong thư mục:"
           cat files_list.txt
-
-          # Bốc dòng đầu tiên (bản thấp nhất/file nhẹ) để test script
-          FIRST_LINE=$(head -n 1 files_list.txt)
-          
-          # Tách lấy ID và Tên file từ log của gdown
-          FILE_ID=$(echo "$FIRST_LINE" | awk '{print $3}')
-          FILE_NAME=$(echo "$FIRST_LINE" | cut -d' ' -f4-)
-
-          echo "-------------------------------------------------------"
-          echo "🎯 ĐÃ BỐC ĐƯỢC FILE ĐẦU TIÊN ĐỂ THỬ NGHIỆM:"
-          echo "Tên file: $FILE_NAME"
-          echo "ID File: $FILE_ID"
           echo "-------------------------------------------------------"
 
-          echo "=== TIẾN HÀNH TẢI FILE BẰNG GDOWN (HỖ TRỢ FILE LỚN) ==="
-          # Dùng gdown kéo trực tiếp bằng ID, nó tự động xử lý trang xác nhận cảnh báo của Google
-          gdown --id "$FILE_ID" -O "$FILE_NAME"
+          DOWNLOADED_SUCCESS=false
+          FINAL_FILE_NAME=""
+
+          # Đọc từng dòng trong danh sách file để tìm file có thể tải được
+          while IFS= read -r line || [ -n "$line" ]; do
+            # Tách lấy ID và Tên file từ log của gdown
+            FILE_ID=$(echo "$line" | awk '{print $3}')
+            FILE_NAME=$(echo "$line" | cut -d' ' -f4-)
+
+            # Bỏ qua nếu là file Readme.md hoặc file cấu hình không cần thiết
+            if [[ "$FILE_NAME" == *"Readme"* || "$FILE_NAME" == *.md ]]; then
+              continue
+            fi
+
+            echo "🎯 Thử tải file: $FILE_NAME (ID: $FILE_ID)"
+            
+            # Tiến hành tải bằng cú pháp gdown chuẩn mới (không dùng tham số --id lỗi)
+            if gdown "https://drive.google.com/uc?id=$FILE_ID" -O "$FILE_NAME"; then
+              
+              # Kiểm tra dung lượng thực tế sau khi tải (yêu cầu lớn hơn 100KB để loại trừ file HTML 2.5K lỗi)
+              FILE_SIZE=$(stat -c%s "$FILE_NAME" 2>/dev/null || echo 0)
+              if [ "$FILE_SIZE" -gt 102400 ]; then
+                echo "✅ Tải thành công file gốc hợp lệ! Dung lượng: $(ls -lh "$FILE_NAME" | awk '{print $5}')"
+                DOWNLOADED_SUCCESS=true
+                FINAL_FILE_NAME="$FILE_NAME"
+                break
+              else
+                echo "⚠️ Cảnh báo: File tải về quá nhỏ ($FILE_SIZE bytes), có thể bị dính trang HTML chặn quota của Google. Đang xóa và thử file khác..."
+                rm -f "$FILE_NAME"
+              fi
+            else
+              echo "❌ gdown thất bại khi tải ID này. Đang thử file tiếp theo..."
+            fi
+            echo "-------------------------------------------------------"
+          done < files_list.txt
+
+          # Kiểm tra nếu duyệt hết danh sách mà không tải được file nào
+          if [ "$DOWNLOADED_SUCCESS" = false ]; then
+            echo "❌ Thất bại: Tất cả các file trong thư mục đều bị Google Drive chặn giới hạn lượt tải (Quota Exceeded) hoặc lỗi!"
+            exit 1
+          fi
 
           # Dọn dẹp file tạm
           rm -f gdown_log.txt files_list.txt
           
           echo "Lưu đầu ra vào hệ thống..."
-          echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
+          echo "filename=$FINAL_FILE_NAME" >> $GITHUB_OUTPUT
 
       - name: Verify Downloaded File
         run: |
