@@ -19,39 +19,43 @@ jobs:
         run: |
           set -e
 
-          # ID thư mục từ link của bạn
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
-          echo "=== ĐANG QUÈT DANH SÁCH FILE TỪ GOOGLE DRIVE ==="
+          echo "=== ĐANG QUÉT DANH SÁCH FILE TỪ GOOGLE DRIVE ==="
           
           python -c "
           import urllib.request
           import re
-          import json
           import sys
-          import os
 
           folder_id = '1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m'
-          url = f'https://drive.google.com/embeddedfolder?id={folder_id}'
-          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+          # Chuyển sang cào trang giao diện gốc - nơi chứa cục dữ liệu JSON tổng mà gdown hay dùng
+          url = f'https://drive.google.com/drive/folders/{folder_id}'
+          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
           
           try:
               html = urllib.request.urlopen(req).read().decode('utf-8')
-              # Tìm tất cả các file có đuôi phổ biến hoặc file text
-              matches = re.findall(r'\[\"([a-zA-Z0-9_-]{28,35})\",\"([^\"]+\.(?:7z|zip|rar|bin|md))\"', html)
+              
+              # Sử dụng Regex bốc cấu trúc ID và Tên file nằm trong cục dữ liệu của trang Drive gốc
+              # Cấu trúc này quét được cả ID file lẫn tên file dạng chuỗi JSON
+              matches = re.findall(r'\[\"([a-zA-Z0-9_-]{28,35})\"\,\"([^\"]+\.(?:7z|zip|rar|bin|md))\"', html)
               
               if not matches:
-                  print('ERROR: Không tìm thấy file nào trong thư mục!')
+                  # Backup Regex: Tìm phòng hờ nếu cấu trúc JSON dạng dấu nháy khác
+                  matches = re.findall(r'\"([a-zA-Z0-9_-]{28,35})\"\,\"([^\"]+\.(?:7z|zip|rar|bin|md))\"', html)
+
+              if not matches:
+                  print('ERROR: Không tìm thấy dữ liệu file nào! Google đã thay đổi cấu trúc hiển thị.')
                   sys.exit(1)
               
-              # Sắp xếp danh sách file theo bảng chữ cái
+              # Lọc trùng lặp và sắp xếp bảng chữ cái
               unique_files = sorted(list(set(matches)), key=lambda x: x[1])
               
-              # THAY ĐỔI TẠI ĐÂY: Lấy file đầu tiên [0] thay vì file cuối cùng [-1] để test script
+              # Bốc file đầu tiên [0] để test thử xem script chạy thông không
               test_file = unique_files[0]
               
               print('-------------------------------------------------------')
-              print('🎯 THỬ NGHIỆM - ĐÃ BỐC FILE ĐẦU TIÊN TRONG DANH SÁCH:')
+              print('🎯 ĐÃ BỐC THÀNH CÔNG FILE ĐẦU TIÊN QUA TRANG GỐC:')
               print(f'Tên file: {test_file[1]}')
               print(f'ID File: {test_file[0]}')
               print('-------------------------------------------------------')
@@ -59,7 +63,7 @@ jobs:
               with open('target_file.txt', 'w', encoding='utf-8') as f:
                   f.write(f'{test_file[0]}|{test_file[1]}')
           except Exception as e:
-              print(f'Lỗi cào dữ liệu: {e}')
+              print(f'Lỗi cào dữ liệu trang gốc: {e}')
               sys.exit(1)
           "
 
@@ -69,7 +73,7 @@ jobs:
           FILE_NAME=$(echo "$LATEST_INFO" | cut -d'|' -f2)
 
           echo "=== TIẾN HÀNH TẢI FILE TIÊU CHUẨN ==="
-          # Tải file bằng lệnh curl cơ bản nhất, không dùng thủ thuật bypass cookie
+          # Tải file qua link xuất bản trực tiếp của Google Drive
           curl -L -o "$FILE_NAME" "https://drive.google.com/uc?export=download&id=$FILE_ID"
 
           rm -f target_file.txt
