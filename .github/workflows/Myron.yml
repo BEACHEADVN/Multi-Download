@@ -1,91 +1,140 @@
-name: Auto Find and Download Latest MyROM
+name: Myron ROM
+
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+
+permissions:
+  contents: write
 
 jobs:
-  download-rom:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      - name: Pull latest
+        run: git pull origin main || true
 
-      # Cài đặt thư viện kết nối Google Drive chính thức
-      - name: Install Google API Client
+      - name: Install dependencies
         run: |
-          pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          sudo apt-get update
+          sudo apt-get install -y aria2 curl jq
 
-      - name: Get Latest File and Download
-        id: gdrive
+      # ===== GET ROM =====
+      - name: Get Latest ROM
+        id: rom
         run: |
-          set -e
-          
-          # ID thư mục con cuối cùng từ link của bạn
-          FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
-          
-          echo "=== ĐANG QUÉT DANH SÁCH FILE TRÊN GOOGLE DRIVE ==="
-          
-          # Chạy script Python để lấy file mới nhất và tải về mà không cần API key
-          python -c "
-          import urllib.request
-          import json
-          import os
-          import sys
+          BASE_URL="https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/"
+          HTML=$(curl -sL "$BASE_URL")
 
-          folder_id = '$FOLDER_ID'
-          # Sử dụng API công khai của Google Drive để lấy danh sách file, sắp xếp theo ngày chỉnh sửa giảm dần
-          url = f'https://www.googleapis.com/drive/v3/files?q=%27{folder_id}%27+in+parents+and+trashed%3Dfalse&orderBy=modifiedTime+desc&fields=files(id,name,size)&key='
-          
-          try:
-              req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-              with urllib.request.urlopen(req) as response:
-                  data = json.loads(response.read().decode())
-              
-              files = data.get('files', [])
-              if not files:
-                  print('ERROR: Không tìm thấy file nào trong thư mục!')
-                  sys.exit(1)
-              
-              # Do đã chọn orderBy=modifiedTime desc nên file đầu tiên chắc chắn là bản mới nhất
-              latest_file = files[0]
-              file_id = latest_file['id']
-              file_name = latest_file['name']
-              
-              print('-------------------------------------------------------')
-              print(f'🎯 ĐÃ TÌM THẤY FILE MYROM MỚI NHẤT:')
-              print(f'Tên file: {file_name}')
-              print(f'ID Google Drive: {file_id}')
-              print('-------------------------------------------------------')
-              
-              # Tiến hành tải file
-              print('=== TIẾN HÀNH TẢI FILE ===')
-              download_url = f'https://www.googleapis.com/drive/v3/files/{file_id}?alt=media'
-              
-              # Ghi tên file ra file tạm để bash nhận diện sau khi kết thúc python
-              with open('target_file.txt', 'w') as f:
-                  f.write(f'{file_id}|{file_name}')
-                  
-          except Exception as e:
-              print(f'Lỗi kết nối API: {e}')
-              sys.exit(1)
-          "
+          FILE=$(echo "$HTML" | grep -o 'xiaomi.eu_MYRON_OS3[^"]*zip' | sort -V | tail -n 1)
+          URL="https://downloads.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/$FILE"
 
-          # Đọc dữ liệu từ script Python xử lý
-          LATEST_INFO=$(cat target_file.txt)
-          FILE_ID=$(echo "$LATEST_INFO" | cut -d'|' -f1)
-          FILE_NAME=$(echo "$LATEST_INFO" | cut -d'|' -f2)
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+          echo "url=$URL" >> $GITHUB_OUTPUT
 
-          # Tải file trực tiếp bằng curl (rất nhanh và không sợ lỗi gdown)
-          curl -L -o "$FILE_NAME" "https://www.googleapis.com/drive/v3/files/$FILE_ID?alt=media"
-
-          echo "Lưu đầu ra vào hệ thống..."
-          echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
-          echo "Tải thành công: $(ls -lh "$FILE_NAME")"
-
-      - name: Verify Downloaded File
+      # ===== CHECK STATE =====
+      - name: Check Uploaded State
+        id: check
         run: |
-          echo "File vừa được tải về thành công là: ${{ steps.gdrive.outputs.filename }}"
+          FILE="${{ steps.rom.outputs.file }}"
+          STATE_FILE="rom_uploaded.txt"
+          touch $STATE_FILE
+
+          echo "Checking: $FILE"
+
+          if grep -Fq "$FILE|" "$STATE_FILE"; then
+            ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d '|' -f2)
+
+            echo "Found in state with ID: $ID"
+
+            API="https://pixeldrain.com/api/file/$ID/info"
+            RESPONSE=$(curl -s "$API")
+
+            SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+
+            if [ "$SUCCESS" = "true" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+              echo "File vẫn tồn tại trên Pixeldrain → SKIP"
+            else
+              echo "skip=false" >> $GITHUB_OUTPUT
+              echo "File đã bị xoá → upload lại"
+            fi
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "File mới → upload"
+          fi
+
+      # ===== DOWNLOAD =====
+      - name: Download ROM
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          aria2c -x 16 -s 16 -k 1M --continue=true \
+            -o "${{ steps.rom.outputs.file }}" \
+            "${{ steps.rom.outputs.url }}"
+
+      # ===== UPLOAD =====
+      - name: Upload to Pixeldrain
+        if: steps.check.outputs.skip != 'true'
+        id: pd
+        env:
+          PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+        run: |
+          FILE="${{ steps.rom.outputs.file }}"
+
+          RESPONSE=$(curl -u ":$PD_API_KEY" \
+            -F "file=@${FILE}" \
+            https://pixeldrain.com/api/file)
+
+          ID=$(echo "$RESPONSE" | jq -r '.id')
+
+          if [ "$ID" = "null" ] || [ -z "$ID" ]; then
+            echo "Upload failed"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          echo "id=$ID" >> $GITHUB_OUTPUT
+          echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
+
+      # ===== TELEGRAM =====
+      - name: Send Telegram Notification
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          FILE="${{ steps.rom.outputs.file }}"
+          LINK="${{ steps.pd.outputs.link }}"
+
+          TEXT="<b>🚀 New Myron ROM Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
+
+          curl -s -X POST \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="$TEXT" \
+            -d parse_mode="HTML"
+
+      # ===== SAVE STATE =====
+      - name: Save State and Push
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          FILE="${{ steps.rom.outputs.file }}"
+          ID="${{ steps.pd.outputs.id }}"
+          STATE_FILE="rom_uploaded.txt"
+
+          sed -i "\|^$FILE|d" "$STATE_FILE"
+
+          echo "$FILE|$ID" >> "$STATE_FILE"
+
+          git add "$STATE_FILE"
+          git commit -m "Update ROM: $FILE" || exit 0
+
+          git pull --rebase origin main
+          git push origin main
