@@ -64,12 +64,12 @@ jobs:
           echo "=== KÍCH HOẠT THỦ THUẬT BYPASS QUOTA LIMIT ==="
           echo "Tiến hành server-side sao chép file vào thư mục gốc My Drive..."
           
-          # Thực hiện copy bản sao của file dính quota trực tiếp vào thư mục gốc ("/") của Drive cá nhân của bạn
-          rclone backend copyid mydrive: "$FILE_ID" "/" --drive-server-side-across-configs
+          # Truyền chuỗi trống "" để Rclone nhận diện đúng thư mục gốc của Google Drive cá nhân
+          rclone backend copyid mydrive: "$FILE_ID" "" --drive-server-side-across-configs
 
           echo "=== TIẾN HÀNH TẢI FILE VỀ GITHUB RUNNER ==="
-          # Chỉ tải duy nhất file ROM vừa được nhân bản từ thư mục gốc về máy ảo
-          rclone copy mydrive:/ ./ --include "$FILE_NAME" --progress
+          # Tải file từ thư mục gốc của Google Drive về thư mục làm việc hiện tại của Runner
+          rclone copy mydrive:/ . --include "$FILE_NAME" --progress
 
           echo "-------------------------------------------------------"
           echo "Dọn dẹp bản sao trên Google Drive cá nhân để giải phóng dung lượng..."
