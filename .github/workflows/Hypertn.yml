@@ -64,16 +64,16 @@ jobs:
           echo "=== KÍCH HOẠT THỦ THUẬT BYPASS QUOTA LIMIT ==="
           echo "Tiến hành server-side sao chép file trực tiếp vào thư mục gốc Drive..."
           
-          # Bản sao sẽ được lưu ngay tại trang chủ Drive của bạn với tên cố định là 'bypass_target.7z'
+          # Thực hiện copy nội bộ trên server Google
           rclone backend copyid mydrive: "$FILE_ID" "bypass_target.7z" --drive-server-side-across-configs
 
           echo "=== TIẾN HÀNH TẢI FILE VỀ GITHUB RUNNER ==="
-          # Dùng copyto để kéo chính xác file đó về máy ảo và tự động đổi lại tên gốc của ROM
-          rclone copyto mydrive:bypass_target.7z "./$FILE_NAME" --progress
+          # Thêm dấu gạch chéo (mydrive:/...) để định danh rõ ràng đây là đường dẫn file ở thư mục gốc
+          rclone copyto mydrive:/bypass_target.7z "./$FILE_NAME" --progress
 
           echo "-------------------------------------------------------"
           echo "Dọn dẹp file tạm trên Google Drive cá nhân để giải phóng bộ nhớ..."
-          rclone deletefile mydrive:bypass_target.7z
+          rclone deletefile mydrive:/bypass_target.7z
 
           rm -f gdown_log.txt files_list.txt
           
