@@ -28,21 +28,18 @@ jobs:
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
           
           echo "=== ĐANG TẢI THƯ MỤC TỪ GOOGLE DRIVE ==="
-          # Tạo một thư mục tạm để chứa dữ liệu tải về
           mkdir -p myrom_folder
           
-          # Sử dụng cú pháp mới nhất của gdown dành cho Folder (Tự vượt 403 bằng Cookie giả lập)
-          gdown --folder --id "$FOLDER_ID" -O myrom_folder --remaining-ok
+          # SỬA TẠI ĐÂY: Bỏ hoàn toàn --id và --remaining-ok, truyền trực tiếp FOLDER_ID vào cuối
+          gdown --folder -O myrom_folder "$FOLDER_ID"
 
           echo "=== TÌM KIẾM FILE MỚI NHẤT TRONG THƯ MỤC ==="
           cd myrom_folder
           
-          # Sắp xếp các file theo thời gian chỉnh sửa (Mới nhất nằm cuối cùng)
-          # Hoặc xếp theo tên nếu tên file chứa số phiên bản tăng dần (v1 -> v2 -> v3)
-          # Ở đây lệnh ls -t sẽ xếp file MỚI NHẤT lên ĐẦU TIÊN
+          # Lấy file .zip mới nhất dựa theo thời gian chỉnh sửa (ls -t đưa file mới nhất lên đầu)
           FILE_NAME=$(ls -t *.zip 2>/dev/null | head -n 1 || true)
           
-          # Nếu không tìm thấy file .zip, quét thử tất cả các định dạng file khác
+          # Nếu không có file .zip, lấy file bất kỳ mới nhất
           if [ -z "$FILE_NAME" ]; then
             FILE_NAME=$(ls -t | head -n 1)
           fi
@@ -58,7 +55,7 @@ jobs:
           echo "Dung lượng: $(ls -lh "$FILE_NAME" | awk '{print $5}')"
           echo "-------------------------------------------------------"
 
-          # Di chuyển file mới nhất ra thư mục gốc của project để các step sau xử lý
+          # Đẩy file ra thư mục gốc để các step sau dễ sử dụng
           mv "$FILE_NAME" ../
           cd ../
 
