@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install gdown
+      - name: Install Latest gdown
         run: |
           python -m pip install --upgrade pip
           pip install gdown
@@ -26,40 +26,43 @@ jobs:
 
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
-          echo "=== ĐANG QUÉT DANH SÁCH FILE SỬ DỤNG GDOWN PARSER ==="
+          echo "=== ĐANG QUÉT DANH SÁCH FILE SỬ DỤNG GDOWN ==="
           
-          # Dùng gdown xuất danh sách file trong thư mục ra một file text mà KHÔNG tải file về
-          gdown --gdriveurl "https://drive.google.com/drive/folders/$FOLDER_ID" --remaining-ok | tee gdown_log.txt || true
+          # SỬA TẠI ĐÂY: Dùng lệnh timeout của Linux để chạy gdown trong 15 giây.
+          # Cú pháp chuẩn mới: gdown --folder "URL" (không thêm cờ lạ)
+          # Trong 15 giây đầu, gdown chắc chắn sẽ in xong danh sách cấu trúc cây thư mục (Retrieving/Processing) ra file log.
+          timeout 15s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > gdown_log.txt || true
 
           echo "=== PHÂN TÍCH DANH SÁCH FILE THU ĐƯỢC ==="
           
-          # Trích xuất các dòng chứa thông tin file từ log của gdown
-          # Nhật ký gdown có dạng: Processing file ID_FILE NAME_FILE
+          # Lọc ra các dòng chứa danh sách file thực tế mà gdown quét được
           grep "Processing file" gdown_log.txt > files_list.txt || true
 
           if [ ! -s files_list.txt ]; then
-            echo "❌ Lỗi: gdown không thể đọc được cấu trúc thư mục. Vui lòng kiểm tra lại log phía trên."
+            echo "❌ Lỗi: Không thể trích xuất danh sách file từ log. Dưới đây là log thô để debug:"
+            cat gdown_log.txt
             exit 1
           fi
 
-          echo "Danh sách các file tìm thấy:"
+          echo "Danh sách các file tìm thấy trong thư mục:"
           cat files_list.txt
 
-          # Lấy dòng đầu tiên để test bản thấp/file nhẹ theo ý bạn
+          # Lấy dòng đầu tiên (bản thấp nhất hoặc file nhẹ nhất) để test script theo ý bạn
           FIRST_LINE=$(head -n 1 files_list.txt)
           
-          # Cắt chuỗi lấy ID và Tên file (gdown xuất dạng: Processing file ID NAME)
+          # Định dạng dòng log: Processing file ID_FILE NAME_FILE
+          # Tách lấy ID (cột số 3) và Tên file (từ cột số 4 trở đi)
           FILE_ID=$(echo "$FIRST_LINE" | awk '{print $3}')
           FILE_NAME=$(echo "$FIRST_LINE" | cut -d' ' -f4-)
 
           echo "-------------------------------------------------------"
-          echo "🎯 ĐÃ BỐC ĐƯỢC FILE ĐẦU TIÊN ĐỂ TEST:"
+          echo "🎯 ĐÃ BỐC ĐƯỢC FILE ĐẦU TIÊN ĐỂ THỬ NGHIỆM:"
           echo "Tên file: $FILE_NAME"
           echo "ID File: $FILE_ID"
           echo "-------------------------------------------------------"
 
           echo "=== TIẾN HÀNH TẢI FILE TIÊU CHUẨN ==="
-          # Tải file đơn lẻ này bằng curl cơ bản qua cổng export download
+          # Tải duy nhất file này bằng curl qua cổng uc download truyền thống
           curl -L -o "$FILE_NAME" "https://drive.google.com/uc?export=download&id=$FILE_ID"
 
           rm -f gdown_log.txt files_list.txt
