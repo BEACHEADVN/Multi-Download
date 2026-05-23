@@ -64,16 +64,17 @@ jobs:
           echo "=== KÍCH HOẠT THỦ THUẬT BYPASS QUOTA LIMIT ==="
           echo "Tiến hành server-side sao chép file vào thư mục gốc My Drive..."
           
-          # Truyền chuỗi trống "" để Rclone nhận diện đúng thư mục gốc của Google Drive cá nhân
-          rclone backend copyid mydrive: "$FILE_ID" "" --drive-server-side-across-configs
+          # Sử dụng rclone copy với tính năng nạp ID trực tiếp để copy server-side sang tài liệu của bạn với tên tạm
+          rclone copy mydrive:,id="$FILE_ID" mydrive:/ --drive-server-side-across-configs --oneline
 
+          # Đổi tên file tạm thời sang tên chuẩn trên drive của bạn để quản lý chính xác hơn nếu cần, 
+          # hoặc tải thẳng file gốc về dựa trên cơ chế lọc tên
           echo "=== TIẾN HÀNH TẢI FILE VỀ GITHUB RUNNER ==="
-          # Tải file từ thư mục gốc của Google Drive về thư mục làm việc hiện tại của Runner
           rclone copy mydrive:/ . --include "$FILE_NAME" --progress
 
           echo "-------------------------------------------------------"
           echo "Dọn dẹp bản sao trên Google Drive cá nhân để giải phóng dung lượng..."
-          rclone deletefile mydrive:/[cite: x_-"$FILE_NAME"
+          rclone deletefile "mydrive:/$FILE_NAME"
 
           rm -f gdown_log.txt files_list.txt
           
