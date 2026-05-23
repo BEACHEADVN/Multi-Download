@@ -14,55 +14,78 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Latest gdown
-        run: |
-          python -m pip install --upgrade pip
-          pip install gdown
-
-      - name: Download Folder and Get Latest File
+      - name: Parse Google Drive and Bypass Quota
         id: gdrive
         run: |
           set -e
-          
+
           # ID thư mục từ link của bạn
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
-          
-          echo "=== ĐANG TẢI THƯ MỤC TỪ GOOGLE DRIVE ==="
-          mkdir -p myrom_folder
-          
-          # SỬA TẠI ĐÂY: Bỏ hoàn toàn --id và --remaining-ok, truyền trực tiếp FOLDER_ID vào cuối
-          gdown --folder -O myrom_folder "$FOLDER_ID"
 
-          echo "=== TÌM KIẾM FILE MỚI NHẤT TRONG THƯ MỤC ==="
-          cd myrom_folder
+          echo "=== ĐANG LẤY DANH SÁCH FILE TỪ GOOGLE DRIVE ==="
           
-          # Lấy file .zip mới nhất dựa theo thời gian chỉnh sửa (ls -t đưa file mới nhất lên đầu)
-          FILE_NAME=$(ls -t *.zip 2>/dev/null | head -n 1 || true)
+          # Cào trang hiển thị công khai của Google Drive để bốc ID và tên file mà không bị chặn API
+          python -c "
+          import urllib.request
+          import re
+          import json
+          import sys
+
+          url = f'https://drive.google.com/embeddedfolder?id={os.environ.get(\"FOLDER_ID\")}' if not '$FOLDER_ID' else f'https://drive.google.com/embeddedfolder?id=$FOLDER_ID'
+          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
           
-          # Nếu không có file .zip, lấy file bất kỳ mới nhất
-          if [ -z "$FILE_NAME" ]; then
-            FILE_NAME=$(ls -t | head -n 1)
+          try:
+              html = urllib.request.urlopen(req).read().decode('utf-8')
+              # Tìm cấu trúc dữ liệu thô của các file nằm trong thư mục
+              matches = re.findall(r'\[\"([a-zA-Z0-9_-]{28,35})\",\"([^\"]+\.(?:7z|zip|rar|bin))\"', html)
+              
+              if not matches:
+                  print('ERROR: Không tìm thấy file ROM nào!')
+                  sys.exit(1)
+              
+              # Loại bỏ trùng lặp và sắp xếp theo tên file tăng dần
+              unique_files = sorted(list(set(matches)), key=lambda x: x[1])
+              
+              # Bản mới nhất luôn đứng cuối danh sách sau khi xếp theo tên (Bản OS3.0.305.0_20260505)
+              latest_file = unique_files[-1]
+              
+              print('-------------------------------------------------------')
+              print(f'🎯 ĐÃ TÌM THẤY FILE MYROM MỚI NHẤT:')
+              print(f'Tên file: {latest_file[1]}')
+              print(f'ID File: {latest_file[0]}')
+              print('-------------------------------------------------------')
+              
+              with open('target_file.txt', 'w', encoding='utf-8') as f:
+                  f.write(f'{latest_file[0]}|{latest_file[1]}')
+          except Exception as e:
+              print(f'Lỗi cào dữ liệu: {e}')
+              sys.exit(1)
+          "
+
+          LATEST_INFO=$(cat target_file.txt)
+          FILE_ID=$(echo "$LATEST_INFO" | cut -d'|' -f1)
+          FILE_NAME=$(echo "$LATEST_INFO" | cut -d'|' -f2)
+
+          echo "=== TIẾN HÀNH TẢI FILE SỬ DỤNG SCRIPT BYPASS LIMIT ==="
+          
+          # Bước 1: Gửi request lấy cookie xác nhận tải xuống từ Google để vượt giới hạn (Bypass Quota)
+          CONFIRM=$(curl -s -c cookies.txt "https://docs.google.com/uc?export=download&id=$FILE_ID" | grep -o 'confirm=[^&]*' | head -n 1 || true)
+          
+          if [ ! -z "$CONFIRM" ]; then
+            echo "Tìm thấy mã xác nhận vượt rào: $CONFIRM"
+            # Bước 2: Điền mã confirm kèm cookie vào để ép Google Drive cho tải file dung lượng lớn dính giới hạn
+            curl -L -b cookies.txt -o "$FILE_NAME" "https://docs.google.com/uc?export=download&id=$FILE_ID&$CONFIRM"
+          else
+            echo "File không yêu cầu xác nhận hoặc cơ chế thay đổi, tải trực tiếp bằng URL gốc..."
+            curl -L -b cookies.txt -o "$FILE_NAME" "https://docs.google.com/uc?export=download&id=$FILE_ID"
           fi
 
-          if [ -z "$FILE_NAME" ]; then
-            echo "❌ Lỗi: Thư mục tải về trống rỗng!"
-            exit 1
-          fi
-
-          echo "-------------------------------------------------------"
-          echo "🎯 ĐÃ TÌM THẤY FILE MYROM MỚI NHẤT TRONG FOLDER:"
-          echo "Tên file: $FILE_NAME"
-          echo "Dung lượng: $(ls -lh "$FILE_NAME" | awk '{print $5}')"
-          echo "-------------------------------------------------------"
-
-          # Đẩy file ra thư mục gốc để các step sau dễ sử dụng
-          mv "$FILE_NAME" ../
-          cd ../
-
+          rm -f cookies.txt target_file.txt
+          
           echo "Lưu đầu ra vào hệ thống..."
           echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
 
       - name: Verify Downloaded File
         run: |
-          echo "File sẵn sàng xử lý: ${{ steps.gdrive.outputs.filename }}"
+          echo "File đã sẵn sàng xử lý: ${{ steps.gdrive.outputs.filename }}"
           ls -lh "${{ steps.gdrive.outputs.filename }}"
