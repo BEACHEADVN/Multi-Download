@@ -27,15 +27,11 @@ jobs:
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
           echo "=== ĐANG QUÉT DANH SÁCH FILE SỬ DỤNG GDOWN ==="
-          
-          # SỬA TẠI ĐÂY: Dùng lệnh timeout của Linux để chạy gdown trong 15 giây.
-          # Cú pháp chuẩn mới: gdown --folder "URL" (không thêm cờ lạ)
-          # Trong 15 giây đầu, gdown chắc chắn sẽ in xong danh sách cấu trúc cây thư mục (Retrieving/Processing) ra file log.
+          # Giới hạn gdown chạy trong 15 giây để nó kịp in cây danh sách file ra log
           timeout 15s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > gdown_log.txt || true
 
           echo "=== PHÂN TÍCH DANH SÁCH FILE THU ĐƯỢC ==="
-          
-          # Lọc ra các dòng chứa danh sách file thực tế mà gdown quét được
+          # Lọc các dòng chứa file thực tế từ log thô
           grep "Processing file" gdown_log.txt > files_list.txt || true
 
           if [ ! -s files_list.txt ]; then
@@ -47,11 +43,10 @@ jobs:
           echo "Danh sách các file tìm thấy trong thư mục:"
           cat files_list.txt
 
-          # Lấy dòng đầu tiên (bản thấp nhất hoặc file nhẹ nhất) để test script theo ý bạn
+          # Bốc dòng đầu tiên (bản thấp nhất/file nhẹ) để test script
           FIRST_LINE=$(head -n 1 files_list.txt)
           
-          # Định dạng dòng log: Processing file ID_FILE NAME_FILE
-          # Tách lấy ID (cột số 3) và Tên file (từ cột số 4 trở đi)
+          # Tách lấy ID và Tên file từ log của gdown
           FILE_ID=$(echo "$FIRST_LINE" | awk '{print $3}')
           FILE_NAME=$(echo "$FIRST_LINE" | cut -d' ' -f4-)
 
@@ -61,11 +56,21 @@ jobs:
           echo "ID File: $FILE_ID"
           echo "-------------------------------------------------------"
 
-          echo "=== TIẾN HÀNH TẢI FILE TIÊU CHUẨN ==="
-          # Tải duy nhất file này bằng curl qua cổng uc download truyền thống
-          curl -L -o "$FILE_NAME" "https://drive.google.com/uc?export=download&id=$FILE_ID"
+          echo "=== TIẾN HÀNH TẢI FILE (VƯỢT CẢNH BÁO FILE LỚN) ==="
+          # Bước 1: Gửi request lấy mã confirm token và lưu cookie để xác nhận tải file dung lượng lớn
+          CONFIRM=$(curl -s -c cookies.txt "https://docs.google.com/uc?export=download&id=$FILE_ID" | grep -o 'confirm=[^&]*' | head -n 1 || true)
+          
+          # Bước 2: Kiểm tra nếu có mã confirm thì đính kèm vào url để ép Google nhả file gốc
+          if [ ! -z "$CONFIRM" ]; then
+            echo "Tìm thấy mã xác nhận file lớn: $CONFIRM"
+            curl -L -b cookies.txt -o "$FILE_NAME" "https://docs.google.com/uc?export=download&id=$FILE_ID&$CONFIRM"
+          else
+            echo "File nhỏ hoặc không yêu cầu mã, tải trực tiếp..."
+            curl -L -b cookies.txt -o "$FILE_NAME" "https://docs.google.com/uc?export=download&id=$FILE_ID"
+          fi
 
-          rm -f gdown_log.txt files_list.txt
+          # Dọn dẹp file tạm
+          rm -f cookies.txt gdown_log.txt files_list.txt
           
           echo "Lưu đầu ra vào hệ thống..."
           echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
