@@ -64,12 +64,11 @@ jobs:
           echo "=== KÍCH HOẠT THỦ THUẬT BYPASS QUOTA LIMIT ==="
           echo "Tiến hành server-side sao chép file vào thư mục gốc My Drive..."
           
-          # Sử dụng rclone copy với tính năng nạp ID trực tiếp để copy server-side sang tài liệu của bạn với tên tạm
-          rclone copy mydrive:,id="$FILE_ID" mydrive:/ --drive-server-side-across-configs --oneline
+          # Cấu hình một remote tạm thời chỉ định trực tiếp vào ID file nguồn, rồi thực hiện copy server-side sang thư mục gốc của mydrive
+          rclone copy mydrive:/ mydrive:/ --drive-root-folder-id="$FILE_ID" --drive-server-side-across-configs
 
-          # Đổi tên file tạm thời sang tên chuẩn trên drive của bạn để quản lý chính xác hơn nếu cần, 
-          # hoặc tải thẳng file gốc về dựa trên cơ chế lọc tên
           echo "=== TIẾN HÀNH TẢI FILE VỀ GITHUB RUNNER ==="
+          # Tải file từ thư mục gốc của Google Drive về máy ảo
           rclone copy mydrive:/ . --include "$FILE_NAME" --progress
 
           echo "-------------------------------------------------------"
