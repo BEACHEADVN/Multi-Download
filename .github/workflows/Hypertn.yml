@@ -56,23 +56,26 @@ jobs:
           echo "ID File gốc: $FILE_ID"
           echo "-------------------------------------------------------"
 
-          # Cấu hình biến môi trường rclone
+          # 1. Cấu hình Remote Đích (Tài khoản Drive cá nhân của bạn)
           export RCLONE_CONFIG_MYDRIVE_TYPE="drive"
           export RCLONE_CONFIG_MYDRIVE_SCOPE="drive"
           export RCLONE_CONFIG_MYDRIVE_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
 
-          echo "=== LẤY ID THƯ MỤC GỐC GOOGLE DRIVE ==="
-          ROOT_DIR_ID=$(rclone lsf mydrive: --format "i" --max-depth 0 | tr -d '\r\n ')
-          echo "ID Thư mục gốc của bạn là: $ROOT_DIR_ID"
+          # 2. Cấu hình Remote Nguồn tạm thời (Trỏ thẳng vào ID của File dính quota)
+          export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
+          export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
+          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
+          export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FILE_ID"
 
           echo "=== KÍCH HOẠT THỦ THUẬT BYPASS QUOTA LIMIT ==="
           echo "Tiến hành server-side sao chép file vào thư mục gốc My Drive..."
           
-          # Thực hiện copy bằng ID file và ID thư mục đích thực tế vừa tìm được
-          rclone backend copyid mydrive: "$FILE_ID" "$ROOT_DIR_ID" --drive-server-side-across-configs
+          # Thực hiện copy từ root_folder_id (đang là ID file) sang thư mục gốc của mydrive. 
+          # Rclone nhận diện đây là file đơn lẻ nằm trong remote ảo và đồng bộ xuyên suốt trên server Google.
+          rclone copy source_rom: mydrive:/ --drive-server-side-across-configs
 
           echo "=== TIẾN HÀNH TẢI FILE VỀ GITHUB RUNNER ==="
-          # Tải file từ Drive về máy ảo dựa trên bộ lọc tên file chuẩn xác
+          # Tải file từ thư mục gốc của Google Drive về máy ảo dựa trên tên file
           rclone copy mydrive:/ . --include "$FILE_NAME" --progress
 
           echo "-------------------------------------------------------"
