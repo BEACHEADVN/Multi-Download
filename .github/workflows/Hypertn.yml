@@ -1,73 +1,71 @@
-name: Get HyperTN K90 Max Info
+name: Auto Find and Download Latest MyROM
 on:
   workflow_dispatch:
 
 jobs:
-  fetch-info:
+  download-rom:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v5
 
-      - name: Scrape Docusaurus JS Data
-        id: scrape
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Latest gdown
+        run: |
+          python -m pip install --upgrade pip
+          pip install gdown
+
+      - name: Download Folder and Get Latest File
+        id: gdrive
         run: |
           set -e
-
-          # 1. Tải trang chính về để tìm file JS chứa dữ liệu
-          curl -s -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-               "https://www.hypertn.io.vn/download" > index.html
-
-          # 2. Tìm tất cả các file mã nguồn .js được nhúng trong trang
-          # Docusaurus thường lưu cục dữ liệu ở các file assets/js/main.xxxx.js hoặc các file js lẻ
-          JS_FILES=$(grep -oE 'src="([^"]+\.js)"' index.html | cut -d'"' -f2 || true)
-
-          echo "=== ĐANG QUÉT CÁC FILE JAVASCRIPT ĐỂ TÌM K90 MAX ==="
           
-          DOWNLOAD_URL=""
+          # ID thư mục từ link của bạn
+          FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
           
-          for js in $JS_FILES; do
-            # Chuyển đổi link tương đối thành link tuyệt đối để tải về
-            if [[ "$js" == /* ]]; then
-              JS_URL="https://www.hypertn.io.vn$js"
-            else
-              JS_URL="https://www.hypertn.io.vn/download/$js"
-            fi
-            
-            # Tải thử file JS về để phân tích
-            curl -s -L -H "User-Agent: Mozilla/5.0" "$JS_URL" > temp.js
-            
-            # Kiểm tra xem trong file JS này có chứa thông tin của máy Prague (K90 Max) không
-            if grep -q "Prague" temp.js; then
-              echo "Phát hiện dữ liệu K90 Max nằm trong: $JS_URL"
-              
-              # Trích xuất thử đoạn link (thường là link pixeldrain, drive, hoặc telegram) đứng gần chữ Prague
-              # Lệnh này sẽ tìm các link http/https nằm trong phạm vi 200 ký tự xung quanh từ khóa Prague
-              DOWNLOAD_URL=$(grep -o -E 'https?://[^"]+' temp.js | grep -E 'pixeldrain|drive|tele|download' | head -n 1 || true)
-              
-              # Nếu grep link truyền thống không ra, in ra đoạn text thô chứa chữ Prague để xem cấu trúc link cụ thể
-              if [ -z "$DOWNLOAD_URL" ]; then
-                echo "Cấu trúc link dạng đặc biệt. Hiển thị dữ liệu thô xung quanh từ khóa:"
-                grep -o -E '.{0,100}Prague.{0,300}' temp.js | head -n 5 || true
-              fi
-              break
-            fi
-          done
+          echo "=== ĐANG TẢI THƯ MỤC TỪ GOOGLE DRIVE ==="
+          # Tạo một thư mục tạm để chứa dữ liệu tải về
+          mkdir -p myrom_folder
+          
+          # Sử dụng cú pháp mới nhất của gdown dành cho Folder (Tự vượt 403 bằng Cookie giả lập)
+          gdown --folder --id "$FOLDER_ID" -O myrom_folder --remaining-ok
 
-          # 3. Trả kết quả đầu ra
-          if [ -z "$DOWNLOAD_URL" ]; then
-            echo "Chưa tự động tách được link sạch, cần xem log dữ liệu thô ở trên."
-            echo "url=NEED_LOG_CHECK" >> $GITHUB_OUTPUT
-            echo "filename=NEED_LOG_CHECK" >> $GITHUB_OUTPUT
-          else
-            FILE_NAME=$(basename "$DOWNLOAD_URL" | cut -d'?' -f1)
-            echo "Tìm thấy Link K90 Max: $DOWNLOAD_URL"
-            echo "Tên file: $FILE_NAME"
-            echo "url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
-            echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
+          echo "=== TÌM KIẾM FILE MỚI NHẤT TRONG THƯ MỤC ==="
+          cd myrom_folder
+          
+          # Sắp xếp các file theo thời gian chỉnh sửa (Mới nhất nằm cuối cùng)
+          # Hoặc xếp theo tên nếu tên file chứa số phiên bản tăng dần (v1 -> v2 -> v3)
+          # Ở đây lệnh ls -t sẽ xếp file MỚI NHẤT lên ĐẦU TIÊN
+          FILE_NAME=$(ls -t *.zip 2>/dev/null | head -n 1 || true)
+          
+          # Nếu không tìm thấy file .zip, quét thử tất cả các định dạng file khác
+          if [ -z "$FILE_NAME" ]; then
+            FILE_NAME=$(ls -t | head -n 1)
           fi
 
-      - name: View Output
+          if [ -z "$FILE_NAME" ]; then
+            echo "❌ Lỗi: Thư mục tải về trống rỗng!"
+            exit 1
+          fi
+
+          echo "-------------------------------------------------------"
+          echo "🎯 ĐÃ TÌM THẤY FILE MYROM MỚI NHẤT TRONG FOLDER:"
+          echo "Tên file: $FILE_NAME"
+          echo "Dung lượng: $(ls -lh "$FILE_NAME" | awk '{print $5}')"
+          echo "-------------------------------------------------------"
+
+          # Di chuyển file mới nhất ra thư mục gốc của project để các step sau xử lý
+          mv "$FILE_NAME" ../
+          cd ../
+
+          echo "Lưu đầu ra vào hệ thống..."
+          echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Verify Downloaded File
         run: |
-          echo "URL: ${{ steps.scrape.outputs.url }}"
-          echo "FILE: ${{ steps.scrape.outputs.filename }}"
+          echo "File sẵn sàng xử lý: ${{ steps.gdrive.outputs.filename }}"
+          ls -lh "${{ steps.gdrive.outputs.filename }}"
