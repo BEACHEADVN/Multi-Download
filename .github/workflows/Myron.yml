@@ -1,140 +1,84 @@
-name: Myron ROM
-
+name: Auto Find and Download Latest MyROM
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "0 * * * *"
-
-permissions:
-  contents: write
+  workflow_dispatch: # Chạy bằng tay khi cần
 
 jobs:
-  build:
+  download-rom:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v5
 
-      - name: Pull latest
-        run: git pull origin main || true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-python: '3.10'
 
-      - name: Install dependencies
+      - name: Install gdown
         run: |
-          sudo apt-get update
-          sudo apt-get install -y aria2 curl jq
+          python -m pip install --upgrade pip
+          pip install gdown
 
-      # ===== GET ROM =====
-      - name: Get Latest ROM
-        id: rom
+      - name: Get Latest File and Download
+        id: gdrive
         run: |
-          BASE_URL="https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/"
-          HTML=$(curl -sL "$BASE_URL")
+          set -e
+          
+          # ID thư mục con cuối cùng trích xuất từ link Google Drive của bạn
+          FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
+          
+          echo "=== ĐANG QUÈT DANH SÁCH FILE TRÊN GOOGLE DRIVE ==="
+          
+          # Sử dụng gdown để liệt kê toàn bộ các file trong thư mục lưu thành file JSON
+          gdown --id "$FOLDER_ID" --remaining-ok --list > folder_contents.json
+          
+          # Phân tích cú pháp file JSON bằng Python để tìm file mới nhất dựa trên tên hoặc ngày tháng
+          # Kịch bản này ưu tiên tìm file đuôi .zip có số phiên bản lớn nhất hoặc ngày mới nhất
+          LATEST_FILE_ID=$(python -c '
+          import json, os
+          with open("folder_contents.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+          
+          # Lọc ra danh sách các file (bỏ qua thư mục con nếu có)
+          files = [item for item in data if not item.get("is_folder", False)]
+          
+          if not files:
+              print("NOT_FOUND")
+              exit()
+          
+          # Sắp xếp các file theo thứ tự bảng chữ cái/ngày tháng tăng dần (Tên file ROM thường chứa số phiên bản tăng dần)
+          # File cuối cùng sau khi sắp xếp sẽ là bản mới nhất
+          files.sort(key=lambda x: x.get("name", ""))
+          latest_file = files[-1]
+          
+          # Trả về chuỗi định dạng: FILE_ID|FILE_NAME
+          print(f"{latest_file['id']}|{latest_file['name']}")
+          ')
 
-          FILE=$(echo "$HTML" | grep -o 'xiaomi.eu_MYRON_OS3[^"]*zip' | sort -V | tail -n 1)
-          URL="https://downloads.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/$FILE"
-
-          echo "file=$FILE" >> $GITHUB_OUTPUT
-          echo "url=$URL" >> $GITHUB_OUTPUT
-
-      # ===== CHECK STATE =====
-      - name: Check Uploaded State
-        id: check
-        run: |
-          FILE="${{ steps.rom.outputs.file }}"
-          STATE_FILE="rom_uploaded.txt"
-          touch $STATE_FILE
-
-          echo "Checking: $FILE"
-
-          if grep -Fq "$FILE|" "$STATE_FILE"; then
-            ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d '|' -f2)
-
-            echo "Found in state with ID: $ID"
-
-            API="https://pixeldrain.com/api/file/$ID/info"
-            RESPONSE=$(curl -s "$API")
-
-            SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
-
-            if [ "$SUCCESS" = "true" ]; then
-              echo "skip=true" >> $GITHUB_OUTPUT
-              echo "File vẫn tồn tại trên Pixeldrain → SKIP"
-            else
-              echo "skip=false" >> $GITHUB_OUTPUT
-              echo "File đã bị xoá → upload lại"
-            fi
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-            echo "File mới → upload"
-          fi
-
-      # ===== DOWNLOAD =====
-      - name: Download ROM
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          aria2c -x 16 -s 16 -k 1M --continue=true \
-            -o "${{ steps.rom.outputs.file }}" \
-            "${{ steps.rom.outputs.url }}"
-
-      # ===== UPLOAD =====
-      - name: Upload to Pixeldrain
-        if: steps.check.outputs.skip != 'true'
-        id: pd
-        env:
-          PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
-        run: |
-          FILE="${{ steps.rom.outputs.file }}"
-
-          RESPONSE=$(curl -u ":$PD_API_KEY" \
-            -F "file=@${FILE}" \
-            https://pixeldrain.com/api/file)
-
-          ID=$(echo "$RESPONSE" | jq -r '.id')
-
-          if [ "$ID" = "null" ] || [ -z "$ID" ]; then
-            echo "Upload failed"
-            echo "$RESPONSE"
+          if [ "$LATEST_FILE_ID" == "NOT_FOUND" ] || [ -z "$LATEST_FILE_ID" ]; then
+            echo "❌ Lỗi: Không tìm thấy file nào trong thư mục Google Drive này!"
             exit 1
           fi
 
-          echo "id=$ID" >> $GITHUB_OUTPUT
-          echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
+          # Tách ID và Tên file ra làm các biến riêng biệt
+          FILE_ID=$(echo "$LATEST_FILE_ID" | cut -d'|' -f1)
+          FILE_NAME=$(echo "$LATEST_FILE_ID" | cut -d'|' -f2)
 
-      # ===== TELEGRAM =====
-      - name: Send Telegram Notification
-        if: steps.check.outputs.skip != 'true'
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          echo "-------------------------------------------------------"
+          echo "🎯 ĐÃ TÌM THẤY FILE MYROM MỚI NHẤT:"
+          echo "Tên file: $FILE_NAME"
+          echo "ID Google Drive: $FILE_ID"
+          echo "-------------------------------------------------------"
+
+          echo "=== TIẾN HÀNH TẢI FILE ==="
+          # Thực hiện tải file trực tiếp về runner của GitHub Actions
+          gdown --id "$FILE_ID" -O "$FILE_NAME" --remaining-ok
+
+          echo "Lưu đầu ra vào hệ thống..."
+          echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
+          echo "Tải thành công: $(ls -lh "$FILE_NAME")"
+
+      # Bước kế thừa này giúp bạn tái sử dụng tên file để check Pixeldrain hoặc làm việc khác
+      - name: Verify Downloaded File
         run: |
-          FILE="${{ steps.rom.outputs.file }}"
-          LINK="${{ steps.pd.outputs.link }}"
-
-          TEXT="<b>🚀 New Myron ROM Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
-
-          curl -s -X POST \
-            "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d chat_id="${CHAT_ID}" \
-            -d text="$TEXT" \
-            -d parse_mode="HTML"
-
-      # ===== SAVE STATE =====
-      - name: Save State and Push
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          FILE="${{ steps.rom.outputs.file }}"
-          ID="${{ steps.pd.outputs.id }}"
-          STATE_FILE="rom_uploaded.txt"
-
-          sed -i "\|^$FILE|d" "$STATE_FILE"
-
-          echo "$FILE|$ID" >> "$STATE_FILE"
-
-          git add "$STATE_FILE"
-          git commit -m "Update ROM: $FILE" || exit 0
-
-          git pull --rebase origin main
-          git push origin main
+          echo "File vừa được tải về thành công là: ${{ steps.gdrive.outputs.filename }}"
