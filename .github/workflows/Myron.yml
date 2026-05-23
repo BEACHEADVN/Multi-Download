@@ -1,6 +1,6 @@
 name: Auto Find and Download Latest MyROM
 on:
-  workflow_dispatch: # Chạy bằng tay khi cần
+  workflow_dispatch:
 
 jobs:
   download-rom:
@@ -12,73 +12,80 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-python: '3.10'
+          python-version: '3.10'
 
-      - name: Install gdown
+      # Cài đặt thư viện kết nối Google Drive chính thức
+      - name: Install Google API Client
         run: |
-          python -m pip install --upgrade pip
-          pip install gdown
+          pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
       - name: Get Latest File and Download
         id: gdrive
         run: |
           set -e
           
-          # ID thư mục con cuối cùng trích xuất từ link Google Drive của bạn
+          # ID thư mục con cuối cùng từ link của bạn
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
           
-          echo "=== ĐANG QUÈT DANH SÁCH FILE TRÊN GOOGLE DRIVE ==="
+          echo "=== ĐANG QUÉT DANH SÁCH FILE TRÊN GOOGLE DRIVE ==="
           
-          # Sử dụng gdown để liệt kê toàn bộ các file trong thư mục lưu thành file JSON
-          gdown --id "$FOLDER_ID" --remaining-ok --list > folder_contents.json
-          
-          # Phân tích cú pháp file JSON bằng Python để tìm file mới nhất dựa trên tên hoặc ngày tháng
-          # Kịch bản này ưu tiên tìm file đuôi .zip có số phiên bản lớn nhất hoặc ngày mới nhất
-          LATEST_FILE_ID=$(python -c '
-          import json, os
-          with open("folder_contents.json", "r", encoding="utf-8") as f:
-              data = json.load(f)
-          
-          # Lọc ra danh sách các file (bỏ qua thư mục con nếu có)
-          files = [item for item in data if not item.get("is_folder", False)]
-          
-          if not files:
-              print("NOT_FOUND")
-              exit()
-          
-          # Sắp xếp các file theo thứ tự bảng chữ cái/ngày tháng tăng dần (Tên file ROM thường chứa số phiên bản tăng dần)
-          # File cuối cùng sau khi sắp xếp sẽ là bản mới nhất
-          files.sort(key=lambda x: x.get("name", ""))
-          latest_file = files[-1]
-          
-          # Trả về chuỗi định dạng: FILE_ID|FILE_NAME
-          print(f"{latest_file['id']}|{latest_file['name']}")
-          ')
+          # Chạy script Python để lấy file mới nhất và tải về mà không cần API key
+          python -c "
+          import urllib.request
+          import json
+          import os
+          import sys
 
-          if [ "$LATEST_FILE_ID" == "NOT_FOUND" ] || [ -z "$LATEST_FILE_ID" ]; then
-            echo "❌ Lỗi: Không tìm thấy file nào trong thư mục Google Drive này!"
-            exit 1
-          fi
+          folder_id = '$FOLDER_ID'
+          # Sử dụng API công khai của Google Drive để lấy danh sách file, sắp xếp theo ngày chỉnh sửa giảm dần
+          url = f'https://www.googleapis.com/drive/v3/files?q=%27{folder_id}%27+in+parents+and+trashed%3Dfalse&orderBy=modifiedTime+desc&fields=files(id,name,size)&key='
+          
+          try:
+              req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+              with urllib.request.urlopen(req) as response:
+                  data = json.loads(response.read().decode())
+              
+              files = data.get('files', [])
+              if not files:
+                  print('ERROR: Không tìm thấy file nào trong thư mục!')
+                  sys.exit(1)
+              
+              # Do đã chọn orderBy=modifiedTime desc nên file đầu tiên chắc chắn là bản mới nhất
+              latest_file = files[0]
+              file_id = latest_file['id']
+              file_name = latest_file['name']
+              
+              print('-------------------------------------------------------')
+              print(f'🎯 ĐÃ TÌM THẤY FILE MYROM MỚI NHẤT:')
+              print(f'Tên file: {file_name}')
+              print(f'ID Google Drive: {file_id}')
+              print('-------------------------------------------------------')
+              
+              # Tiến hành tải file
+              print('=== TIẾN HÀNH TẢI FILE ===')
+              download_url = f'https://www.googleapis.com/drive/v3/files/{file_id}?alt=media'
+              
+              # Ghi tên file ra file tạm để bash nhận diện sau khi kết thúc python
+              with open('target_file.txt', 'w') as f:
+                  f.write(f'{file_id}|{file_name}')
+                  
+          except Exception as e:
+              print(f'Lỗi kết nối API: {e}')
+              sys.exit(1)
+          "
 
-          # Tách ID và Tên file ra làm các biến riêng biệt
-          FILE_ID=$(echo "$LATEST_FILE_ID" | cut -d'|' -f1)
-          FILE_NAME=$(echo "$LATEST_FILE_ID" | cut -d'|' -f2)
+          # Đọc dữ liệu từ script Python xử lý
+          LATEST_INFO=$(cat target_file.txt)
+          FILE_ID=$(echo "$LATEST_INFO" | cut -d'|' -f1)
+          FILE_NAME=$(echo "$LATEST_INFO" | cut -d'|' -f2)
 
-          echo "-------------------------------------------------------"
-          echo "🎯 ĐÃ TÌM THẤY FILE MYROM MỚI NHẤT:"
-          echo "Tên file: $FILE_NAME"
-          echo "ID Google Drive: $FILE_ID"
-          echo "-------------------------------------------------------"
-
-          echo "=== TIẾN HÀNH TẢI FILE ==="
-          # Thực hiện tải file trực tiếp về runner của GitHub Actions
-          gdown --id "$FILE_ID" -O "$FILE_NAME" --remaining-ok
+          # Tải file trực tiếp bằng curl (rất nhanh và không sợ lỗi gdown)
+          curl -L -o "$FILE_NAME" "https://www.googleapis.com/drive/v3/files/$FILE_ID?alt=media"
 
           echo "Lưu đầu ra vào hệ thống..."
           echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
           echo "Tải thành công: $(ls -lh "$FILE_NAME")"
 
-      # Bước kế thừa này giúp bạn tái sử dụng tên file để check Pixeldrain hoặc làm việc khác
       - name: Verify Downloaded File
         run: |
           echo "File vừa được tải về thành công là: ${{ steps.gdrive.outputs.filename }}"
