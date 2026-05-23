@@ -32,11 +32,9 @@ jobs:
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
           echo "=== ĐANG QUÉT DANH SÁCH FILE SỬ DỤNG GDOWN ==="
-          # Quét cấu trúc cây thư mục trong 15 giây để xuất danh sách file ra log
           timeout 15s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > gdown_log.txt || true
 
           echo "=== PHÂN TÍCH DANH SÁCH FILE MỚI NHẤT ==="
-          # Chỉ lọc các dòng chứa file có đuôi .7z (loại bỏ hoàn toàn Readme.md)
           grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
 
           if [ ! -s files_list.txt ]; then
@@ -48,7 +46,6 @@ jobs:
           cat files_list.txt
           echo "-------------------------------------------------------"
 
-          # Chọn file ROM mới nhất nằm ở dòng cuối cùng (Bản OS3.0.305.0_20260505.7z)
           LATEST_LINE=$(tail -n 1 files_list.txt)
           
           FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
@@ -59,36 +56,25 @@ jobs:
           echo "ID File gốc: $FILE_ID"
           echo "-------------------------------------------------------"
 
-          # Khởi tạo cấu hình rclone trực tiếp qua biến môi trường sử dụng Token của bạn
+          # Cấu hình biến môi trường rclone
           export RCLONE_CONFIG_MYDRIVE_TYPE="drive"
           export RCLONE_CONFIG_MYDRIVE_SCOPE="drive"
           export RCLONE_CONFIG_MYDRIVE_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
 
           echo "=== KÍCH HOẠT THỦ THUẬT BYPASS QUOTA LIMIT ==="
-          echo "Tiến hành nhân bản file dính giới hạn sang Drive cá nhân của bạn..."
+          echo "Tạo thư mục tạm và tiến hành server-side sao chép..."
           
-          # Thực hiện copy nội bộ trên server của Google (mất chưa tới 1 giây)
+          # Thực hiện copy nội bộ trên server của Google vào thư mục riêng biệt
           rclone backend copyid mydrive: "$FILE_ID" "Bypass_Temp_Folder" --drive-server-side-across-configs
 
-          echo "Trích xuất ID của file mới vừa được tạo bản sao..."
-          MY_FILE_ID=$(rclone lsf mydrive:Bypass_Temp_Folder --format "id" | head -n 1)
-
-          if [ -z "$MY_FILE_ID" ]; then
-            echo "❌ Lỗi: Tạo bản sao file thất bại. Vui lòng kiểm tra lại trạng thái bộ nhớ Drive cá nhân."
-            exit 1
-          fi
-
-          echo "-> ID file sạch vừa tạo: $MY_FILE_ID"
-          echo "=== TIẾN HÀNH TẢI FILE GỐC VỚI BĂNG THÔNG TỐI ĐA ==="
-          
-          # Tải trực tiếp file từ Drive của bạn bằng cú pháp gdown mới chuẩn, bỏ qua lỗi hạn mức lượt tải
-          gdown "https://drive.google.com/uc?id=$MY_FILE_ID" -O "$FILE_NAME"
+          echo "=== TIẾN HÀNH TẢI FILE VỀ GITHUB RUNNER ==="
+          # Dùng rclone kéo file từ thư mục tạm trên Drive về trực tiếp máy ảo (Tốc độ max băng thông)
+          rclone copy mydrive:Bypass_Temp_Folder ./ --progress
 
           echo "-------------------------------------------------------"
-          echo "Dọn dẹp thư mục tạm trên Google Drive để giữ sạch bộ nhớ..."
+          echo "Dọn dẹp thư mục tạm trên Google Drive cá nhân..."
           rclone purge mydrive:Bypass_Temp_Folder
 
-          # Xóa các file nhật ký tạm trên Linux
           rm -f gdown_log.txt files_list.txt
           
           echo "Lưu đầu ra vào hệ thống..."
