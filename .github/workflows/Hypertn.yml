@@ -56,21 +56,12 @@ jobs:
           echo "ID File: $FILE_ID"
           echo "-------------------------------------------------------"
 
-          echo "=== TIẾN HÀNH TẢI FILE (VƯỢT CẢNH BÁO FILE LỚN) ==="
-          # Bước 1: Gửi request lấy mã confirm token và lưu cookie để xác nhận tải file dung lượng lớn
-          CONFIRM=$(curl -s -c cookies.txt "https://docs.google.com/uc?export=download&id=$FILE_ID" | grep -o 'confirm=[^&]*' | head -n 1 || true)
-          
-          # Bước 2: Kiểm tra nếu có mã confirm thì đính kèm vào url để ép Google nhả file gốc
-          if [ ! -z "$CONFIRM" ]; then
-            echo "Tìm thấy mã xác nhận file lớn: $CONFIRM"
-            curl -L -b cookies.txt -o "$FILE_NAME" "https://docs.google.com/uc?export=download&id=$FILE_ID&$CONFIRM"
-          else
-            echo "File nhỏ hoặc không yêu cầu mã, tải trực tiếp..."
-            curl -L -b cookies.txt -o "$FILE_NAME" "https://docs.google.com/uc?export=download&id=$FILE_ID"
-          fi
+          echo "=== TIẾN HÀNH TẢI FILE BẰNG GDOWN (HỖ TRỢ FILE LỚN) ==="
+          # Dùng gdown kéo trực tiếp bằng ID, nó tự động xử lý trang xác nhận cảnh báo của Google
+          gdown --id "$FILE_ID" -O "$FILE_NAME"
 
           # Dọn dẹp file tạm
-          rm -f cookies.txt gdown_log.txt files_list.txt
+          rm -f gdown_log.txt files_list.txt
           
           echo "Lưu đầu ra vào hệ thống..."
           echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
