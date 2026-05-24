@@ -1,4 +1,4 @@
-name: Auto Find and Upload Latest ROM
+name: HyperTN
 
 on:
   workflow_dispatch:
