@@ -1,4 +1,4 @@
-name: HyperTN Myron, Socrates
+name: Auto Find and Upload Latest ROM
 
 on:
   workflow_dispatch:
@@ -11,6 +11,19 @@ permissions:
 jobs:
   download-rom:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        rom:
+          - name: myrom
+            pattern: "myrom"
+            folder: "1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
+            state: "myrom_uploaded.txt"
+
+          - name: socrates
+            pattern: "socrates"
+            folder: "1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
+            state: "socrates_uploaded.txt"
 
     steps:
       - name: Checkout Repository
@@ -36,25 +49,30 @@ jobs:
           sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
-      # ===== FIND LATEST ROM =====
+      # ===== FIND LATEST =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
           set -e
 
-          FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
+          FOLDER_ID="${{ matrix.rom.folder }}"
+          PATTERN="${{ matrix.rom.pattern }}"
 
-          echo "=== Scan Google Drive folder ==="
+          echo "=== Scan Google Drive ==="
+
           timeout 20s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > gdown_log.txt || true
 
-          grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
+          grep "Processing file" gdown_log.txt \
+            | grep "\.7z" \
+            | grep -i "$PATTERN" \
+            > files_list.txt || true
 
           if [ ! -s files_list.txt ]; then
-            echo "❌ Không tìm thấy file .7z"
+            echo "❌ Không tìm thấy file $PATTERN"
             exit 1
           fi
 
-          echo "=== ROM found ==="
+          echo "=== Found ==="
           cat files_list.txt
 
           LATEST_LINE=$(tail -n 1 files_list.txt)
@@ -72,9 +90,9 @@ jobs:
         id: check
         run: |
           FILE="${{ steps.gdrive.outputs.file }}"
-          STATE_FILE="rom_uploaded.txt"
+          STATE_FILE="${{ matrix.rom.state }}"
 
-          touch $STATE_FILE
+          touch "$STATE_FILE"
 
           if grep -Fq "$FILE|" "$STATE_FILE"; then
             ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d'|' -f2)
@@ -84,22 +102,20 @@ jobs:
 
             if [ "$SUCCESS" = "true" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
-              echo "File vẫn tồn tại trên Pixeldrain → skip"
+              echo "Already uploaded"
             else
               echo "skip=false" >> $GITHUB_OUTPUT
-              echo "File mất khỏi Pixeldrain → upload lại"
             fi
           else
             echo "skip=false" >> $GITHUB_OUTPUT
-            echo "ROM mới → upload"
           fi
 
-      # ===== DOWNLOAD ROM =====
+      # ===== DOWNLOAD =====
       - name: Download ROM
         if: steps.check.outputs.skip != 'true'
         run: |
           FILE_NAME="${{ steps.gdrive.outputs.file }}"
-          FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
+          FOLDER_ID="${{ matrix.rom.folder }}"
 
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
@@ -112,7 +128,7 @@ jobs:
             --progress
 
       # ===== VERIFY =====
-      - name: Verify Downloaded File
+      - name: Verify Download
         if: steps.check.outputs.skip != 'true'
         run: |
           ls -lh "${{ steps.gdrive.outputs.file }}"
@@ -133,7 +149,6 @@ jobs:
           ID=$(echo "$RESPONSE" | jq -r '.id')
 
           if [ "$ID" = "null" ] || [ -z "$ID" ]; then
-            echo "Upload failed"
             echo "$RESPONSE"
             exit 1
           fi
@@ -150,8 +165,9 @@ jobs:
         run: |
           FILE="${{ steps.gdrive.outputs.file }}"
           LINK="${{ steps.pd.outputs.link }}"
+          ROM="${{ matrix.rom.name }}"
 
-          TEXT="<b>🚀 New HyperTN Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
+          TEXT="<b>🚀 New ${ROM} Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
 
           curl -s -X POST \
             "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
@@ -168,13 +184,13 @@ jobs:
 
           FILE="${{ steps.gdrive.outputs.file }}"
           ID="${{ steps.pd.outputs.id }}"
-          STATE_FILE="rom_uploaded.txt"
+          STATE_FILE="${{ matrix.rom.state }}"
 
           sed -i "\|^$FILE|d" "$STATE_FILE"
           echo "$FILE|$ID" >> "$STATE_FILE"
 
           git add "$STATE_FILE"
-          git commit -m "Update ROM: $FILE" || exit 0
+          git commit -m "Update ${{ matrix.rom.name }}: $FILE" || exit 0
 
           git pull --rebase origin main
           git push origin main
