@@ -1,7 +1,5 @@
 name: Auto Find and Upload Latest MyROM
 
-
-
 on:
 
   workflow_dispatch:
@@ -90,7 +88,7 @@ jobs:
 
           if [ ! -s files_list.txt ]; then
 
-            echo " Không tìm thy file .7z"
+            echo " KhÃ´ng tÃ¬m thy file .7z"
 
             exit 1
 
@@ -138,7 +136,7 @@ jobs:
 
               echo "skip=true" >> $GITHUB_OUTPUT
 
-              echo "File vn tn ti trên Pixeldrain  skip"
+              echo "File vn tn ti trÃªn Pixeldrain  skip"
 
             else
 
