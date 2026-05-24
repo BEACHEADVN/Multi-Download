@@ -9,6 +9,8 @@ permissions:
   contents: write
 
 jobs:
+
+  # ================= MYROM =================
   myrom:
     runs-on: ubuntu-latest
 
@@ -29,11 +31,12 @@ jobs:
           curl https://rclone.org/install.sh | sudo bash
 
       - name: Find latest MyROM
-        id: find
+        id: gdrive
         run: |
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
-          timeout 20s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > log.txt || true
+          timeout 20s gdown --folder \
+          "https://drive.google.com/drive/folders/$FOLDER_ID" > log.txt || true
 
           grep "Processing file" log.txt | grep "\.7z" | grep -i "myrom" > files.txt || true
 
@@ -49,8 +52,9 @@ jobs:
         run: |
           touch myrom_uploaded.txt
 
-          if grep -Fq "${{ steps.find.outputs.file }}|" myrom_uploaded.txt; then
-            ID=$(grep -F "${{ steps.find.outputs.file }}|" myrom_uploaded.txt | cut -d'|' -f2)
+          if grep -Fq "${{ steps.gdrive.outputs.file }}|" myrom_uploaded.txt; then
+            ID=$(grep -F "${{ steps.gdrive.outputs.file }}|" myrom_uploaded.txt | cut -d'|' -f2)
+
             OK=$(curl -s https://pixeldrain.com/api/file/$ID/info | jq -r '.success')
 
             [ "$OK" = "true" ] && echo "skip=true" >> $GITHUB_OUTPUT || echo "skip=false" >> $GITHUB_OUTPUT
@@ -58,14 +62,14 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Download / Upload / Save
+      - name: Download Upload Save
         if: steps.check.outputs.skip != 'true'
         env:
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          FILE="${{ steps.find.outputs.file }}"
+          FILE="${{ steps.gdrive.outputs.file }}"
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
@@ -73,9 +77,13 @@ jobs:
           export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
           export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
 
-          rclone copy source_rom:/ . --include "$FILE" --drive-acknowledge-abuse
+          rclone copy source_rom:/ . \
+            --include "$FILE" \
+            --drive-acknowledge-abuse
 
-          ID=$(curl -u ":$PD_API_KEY" -F "file=@${FILE}" https://pixeldrain.com/api/file | jq -r '.id')
+          ID=$(curl -u ":$PD_API_KEY" \
+            -F "file=@${FILE}" \
+            https://pixeldrain.com/api/file | jq -r '.id')
 
           LINK="https://pixeldrain.com/u/$ID"
 
@@ -97,6 +105,7 @@ jobs:
           git push
 
 
+  # ================= SOCRATES =================
   socrates:
     needs: myrom
     runs-on: ubuntu-latest
@@ -118,11 +127,12 @@ jobs:
           curl https://rclone.org/install.sh | sudo bash
 
       - name: Find latest Socrates
-        id: find
+        id: gdrive
         run: |
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
-          timeout 20s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > log.txt || true
+          timeout 20s gdown --folder \
+          "https://drive.google.com/drive/folders/$FOLDER_ID" > log.txt || true
 
           grep "Processing file" log.txt | grep "\.7z" | grep -i "socrates" > files.txt || true
 
@@ -138,8 +148,9 @@ jobs:
         run: |
           touch socrates_uploaded.txt
 
-          if grep -Fq "${{ steps.find.outputs.file }}|" socrates_uploaded.txt; then
-            ID=$(grep -F "${{ steps.find.outputs.file }}|" socrates_uploaded.txt | cut -d'|' -f2)
+          if grep -Fq "${{ steps.gdrive.outputs.file }}|" socrates_uploaded.txt; then
+            ID=$(grep -F "${{ steps.gdrive.outputs.file }}|" socrates_uploaded.txt | cut -d'|' -f2)
+
             OK=$(curl -s https://pixeldrain.com/api/file/$ID/info | jq -r '.success')
 
             [ "$OK" = "true" ] && echo "skip=true" >> $GITHUB_OUTPUT || echo "skip=false" >> $GITHUB_OUTPUT
@@ -147,14 +158,14 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Download / Upload / Save
+      - name: Download Upload Save
         if: steps.check.outputs.skip != 'true'
         env:
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          FILE="${{ steps.find.outputs.file }}"
+          FILE="${{ steps.gdrive.outputs.file }}"
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
 
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
@@ -162,9 +173,13 @@ jobs:
           export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
           export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
 
-          rclone copy source_rom:/ . --include "$FILE" --drive-acknowledge-abuse
+          rclone copy source_rom:/ . \
+            --include "$FILE" \
+            --drive-acknowledge-abuse
 
-          ID=$(curl -u ":$PD_API_KEY" -F "file=@${FILE}" https://pixeldrain.com/api/file | jq -r '.id')
+          ID=$(curl -u ":$PD_API_KEY" \
+            -F "file=@${FILE}" \
+            https://pixeldrain.com/api/file | jq -r '.id')
 
           LINK="https://pixeldrain.com/u/$ID"
 
