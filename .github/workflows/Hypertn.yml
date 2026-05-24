@@ -1,4 +1,4 @@
-name: Auto Find and Upload Latest MyROM
+name: HyperTN Myron, Socrates
 
 on:
   workflow_dispatch:
@@ -151,7 +151,7 @@ jobs:
           FILE="${{ steps.gdrive.outputs.file }}"
           LINK="${{ steps.pd.outputs.link }}"
 
-          TEXT="<b>🚀 New MyROM Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
+          TEXT="<b>🚀 New HyperTN Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
 
           curl -s -X POST \
             "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
