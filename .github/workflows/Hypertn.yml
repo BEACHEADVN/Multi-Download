@@ -18,58 +18,74 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install gdown
+
       - name: Install rclone
         run: |
           echo "=== ĐANG CÀI ĐẶT RCLONE ==="
           sudo -v ; curl https://rclone.org/install.sh | sudo bash
+
       - name: Parse Folder and Process Download
         id: gdrive
         run: |
           set -e
+
           FOLDER_ID="1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m"
+
           echo "=== ĐANG QUÉT DANH SÁCH FILE SỬ DỤNG GDOWN ==="
           timeout 15s gdown --folder "https://drive.google.com/drive/folders/$FOLDER_ID" > gdown_log.txt || true
+
           echo "=== PHÂN TÍCH DANH SÁCH FILE MỚI NHẤT ==="
           grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
+
           if [ ! -s files_list.txt ]; then
             echo "❌ Lỗi: Không thể trích xuất danh sách file ROM .7z từ log."
             exit 1
           fi
+
           echo "Danh sách các file ROM tìm thấy trong thư mục gốc:"
           cat files_list.txt
           echo "-------------------------------------------------------"
+
           LATEST_LINE=$(tail -n 1 files_list.txt)
           
           FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
           FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
+
           echo "🎯 ĐÃ XÁC ĐỊNH FILE MỚI NHẤT CẦN TẢI:"
           echo "Tên file: $FILE_NAME"
           echo "ID File gốc: $FILE_ID"
           echo "-------------------------------------------------------"
+
           # 1. Cấu hình Remote Đích (Tài khoản Drive cá nhân của bạn)
           export RCLONE_CONFIG_MYDRIVE_TYPE="drive"
           export RCLONE_CONFIG_MYDRIVE_SCOPE="drive"
           export RCLONE_CONFIG_MYDRIVE_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
+
           # 2. Cấu hình Remote Nguồn (Trỏ vào THƯ MỤC CHA chứa file dính quota)
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
           export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
+
           echo "=== KÍCH HOẠT THỦ THUẬT BYPASS QUOTA LIMIT ==="
           echo "Tiến hành server-side sao chép file từ thư mục nguồn vào My Drive..."
           
           # Copy chính xác file bằng tên từ thư mục nguồn sang thư mục gốc của My Drive (Bypass quota)
           rclone copy source_rom:/ mydrive:/ --include "$FILE_NAME" --drive-server-side-across-configs --progress
+
           echo "=== TIẾN HÀNH TẢI FILE VỀ GITHUB RUNNER ==="
           # Tải file từ thư mục gốc của Google Drive về máy ảo Runner
           rclone copy mydrive:/ . --include "$FILE_NAME" --progress
+
           echo "-------------------------------------------------------"
           echo "Dọn dẹp bản sao trên Google Drive cá nhân để giải phóng dung lượng..."
           rclone deletefile "mydrive:/$FILE_NAME"
+
           rm -f gdown_log.txt files_list.txt
           
           echo "Lưu đầu ra vào hệ thống..."
           echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
+
       - name: Verify Downloaded File
         run: |
           echo "Kiểm tra file đã tải xuống thành công:"
