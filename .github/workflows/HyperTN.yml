@@ -168,7 +168,6 @@ jobs:
             -d text="$TEXT" \
             -d parse_mode="HTML"
 
-      # ===== SAVE =====
       - name: Save State
         if: steps.check.outputs.skip != 'true'
         run: |
@@ -178,29 +177,24 @@ jobs:
           FILE="${{ steps.gdrive.outputs.file }}"
           ID="${{ steps.pd.outputs.id }}"
 
-          touch rom_uploaded.txt
-          sed -i "\|^$FILE|d" rom_uploaded.txt
-          echo "$FILE|$ID" >> rom_uploaded.txt
-
-          for i in {1..5}; do
+          for i in {1..10}; do
             git fetch origin main
+            git reset --hard origin/main
 
-            if [ -f origin_state.txt ]; then rm origin_state.txt; fi
-            git show origin/main:rom_uploaded.txt > origin_state.txt 2>/dev/null || touch origin_state.txt
+            touch rom_uploaded.txt
+            sed -i "\|^$FILE|d" rom_uploaded.txt
+            echo "$FILE|$ID" >> rom_uploaded.txt
 
-            cat origin_state.txt rom_uploaded.txt \
-              | sort -u > merged.txt
-
-            mv merged.txt rom_uploaded.txt
+            sort -u rom_uploaded.txt -o rom_uploaded.txt
 
             git add rom_uploaded.txt
             git commit -m "Update ${{ matrix.name }}: $FILE" || true
 
-            if git push origin HEAD:main; then
+            if git push origin main; then
               exit 0
             fi
 
-            sleep 5
+            sleep 3
           done
 
           exit 1
