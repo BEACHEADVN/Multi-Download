@@ -13,14 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Định nghĩa 2 thiết bị chạy song song tại đây
         device: [Myron, Socrates]
         include:
           - device: Myron
             folder_id: "1SigSDil1MVUYeozqGBmXj4thPhfkchXQ"
           - device: Socrates
             folder_id: "1oX7KqbgzmtteFnE_DvUYLa6n3cCTQfLV"
-      # Đảm bảo nếu một thiết bị lỗi, thiết bị còn lại vẫn tiếp tục chạy bình thường
       fail-fast: false
 
     steps:
@@ -38,7 +36,6 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install gdown
           sudo apt-get update
           sudo apt-get install -y curl jq
 
@@ -47,33 +44,41 @@ jobs:
           sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
-      # ===== FIND LATEST ROM =====
+      # ===== FIND LATEST ROM VỚI RCLONE =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
           set -e
           FOLDER_ID="${{ matrix.folder_id }}"
           
-          echo "=== Scan Google Drive folder for [${{ matrix.device }}] ==="
-          timeout 20s gdown --folder \
-            "https://drive.google.com/drive/folders/$FOLDER_ID" \
-            > gdown_log.txt || true
+          # Cấu hình nhanh remote nguồn để quét danh sách file
+          export RCLONE_CONFIG_SCAN_TYPE="drive"
+          export RCLONE_CONFIG_SCAN_SCOPE="drive"
+          export RCLONE_CONFIG_SCAN_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
+          export RCLONE_CONFIG_SCAN_ROOT_FOLDER_ID="$FOLDER_ID"
 
-          grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
+          echo "=== Scan Google Drive folder via Rclone for [${{ matrix.device }}] ==="
+          # Lấy danh sách file kèm ID, chỉ lọc các file có đuôi .7z, sắp xếp theo thứ tự tên tăng dần
+          rclone lsf scan:/ --format "p|i" | grep "\.7z" | sort > files_list.txt || true
 
           if [ ! -s files_list.txt ]; then
-            echo "❌ Không tìm thấy file .7z cho ${{ matrix.device }}"
+            echo "❌ Không tìm thấy file .7z nào trong thư mục của ${{ matrix.device }}"
             exit 1
           fi
 
           echo "=== ROM found ==="
           cat files_list.txt
           
+          # Lấy dòng cuối cùng (file mới nhất theo bảng chữ cái/ngày tháng)
           LATEST_LINE=$(tail -n 1 files_list.txt)
-          FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
-          FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
+          
+          # Tách tên file và ID từ định dạng "tên_file|ID"
+          FILE_NAME=$(echo "$LATEST_LINE" | cut -d'|' -f1)
+          FILE_ID=$(echo "$LATEST_LINE" | cut -d'|' -f2)
 
           echo "Latest ${{ matrix.device }}: $FILE_NAME"
+          echo "ID: $FILE_ID"
+          
           echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
           echo "id=$FILE_ID" >> $GITHUB_OUTPUT
 
@@ -173,7 +178,6 @@ jobs:
           ID="${{ steps.pd.outputs.id }}"
           STATE_FILE="rom_uploaded.txt"
           
-          # Triển khai vòng lặp ngăn xung đột Push khi 2 luồng hoàn thành cùng lúc
           for i in {1..5}; do
             git pull --rebase origin main || true
             touch "$STATE_FILE"
