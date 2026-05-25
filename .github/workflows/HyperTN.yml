@@ -1,4 +1,4 @@
-name: Auto ROM Downloader
+name: HyperTN ROM Downloader
 
 on:
   workflow_dispatch:
