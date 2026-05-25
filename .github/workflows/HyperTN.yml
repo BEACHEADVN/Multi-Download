@@ -65,18 +65,20 @@ jobs:
 
             timeout 30s gdown --folder \
               "https://drive.google.com/drive/folders/$FOLDER_ID" \
-              > gdown_log.txt || true
+              > gdown_log.txt 2>&1 || true
 
-            grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
+            grep '\.7z' gdown_log.txt > files_list.txt || true
 
             if [ ! -s files_list.txt ]; then
               echo "No ROM found"
+              cat gdown_log.txt
               continue
             fi
 
             LATEST_LINE=$(tail -n 1 files_list.txt)
 
-            FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
+            FILE_NAME=$(echo "$LATEST_LINE" | sed 's/^.*Downloading //')
+            FILE_NAME=$(basename "$FILE_NAME")
 
             echo "Latest: $FILE_NAME"
 
