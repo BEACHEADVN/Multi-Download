@@ -1,4 +1,4 @@
-name: HyperTN ROM Auto Upload
+name: HyperTN ROM Automation
 
 on:
   workflow_dispatch:
@@ -9,8 +9,19 @@ permissions:
   contents: write
 
 jobs:
-  upload-roms:
+  download-rom:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Định nghĩa 2 thiết bị chạy song song tại đây
+        device: [Myron, Socrates]
+        include:
+          - device: Myron
+            folder_id: "1SigSDil1MVUYeozqGBmXj4thPhfkchXQ"
+          - device: Socrates
+            folder_id: "1oX7KqbgzmtteFnE_DvUYLa6n3cCTQfLV"
+      # Đảm bảo nếu một thiết bị lỗi, thiết bị còn lại vẫn tiếp tục chạy bình thường
+      fail-fast: false
 
     steps:
       - name: Checkout Repository
@@ -33,122 +44,152 @@ jobs:
 
       - name: Install rclone
         run: |
+          sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
-      - name: Process ROMs
+      # ===== FIND LATEST ROM =====
+      - name: Parse Folder and Find Latest
+        id: gdrive
+        run: |
+          set -e
+          FOLDER_ID="${{ matrix.folder_id }}"
+          
+          echo "=== Scan Google Drive folder for [${{ matrix.device }}] ==="
+          timeout 20s gdown --folder \
+            "https://drive.google.com/drive/folders/$FOLDER_ID" \
+            > gdown_log.txt || true
+
+          grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
+
+          if [ ! -s files_list.txt ]; then
+            echo "❌ Không tìm thấy file .7z cho ${{ matrix.device }}"
+            exit 1
+          fi
+
+          echo "=== ROM found ==="
+          cat files_list.txt
+          
+          LATEST_LINE=$(tail -n 1 files_list.txt)
+          FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
+          FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
+
+          echo "Latest ${{ matrix.device }}: $FILE_NAME"
+          echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
+          echo "id=$FILE_ID" >> $GITHUB_OUTPUT
+
+      # ===== CHECK STATE =====
+      - name: Check Uploaded State
+        id: check
+        run: |
+          FILE="${{ steps.gdrive.outputs.file }}"
+          STATE_FILE="rom_uploaded.txt"
+          touch "$STATE_FILE"
+          
+          if grep -Fq "$FILE|" "$STATE_FILE"; then
+            ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d'|' -f2)
+            RESPONSE=$(curl -s "https://pixeldrain.com/api/file/$ID/info")
+            SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+            if [ "$SUCCESS" = "true" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+              echo "File vẫn tồn tại trên Pixeldrain → skip"
+            else
+              echo "skip=false" >> $GITHUB_OUTPUT
+              echo "File mất → upload lại"
+            fi
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "ROM mới xuất hiện → tiến hành upload"
+          fi
+
+      # ===== DOWNLOAD ROM =====
+      - name: Download ROM
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          FILE_NAME="${{ steps.gdrive.outputs.file }}"
+          FOLDER_ID="${{ matrix.folder_id }}"
+          
+          export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
+          export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
+          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
+          export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
+          
+          rclone copy source_rom:/ . \
+            --include "$FILE_NAME" \
+            --drive-acknowledge-abuse \
+            --progress
+
+      # ===== VERIFY =====
+      - name: Verify Downloaded File
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          ls -lh "${{ steps.gdrive.outputs.file }}"
+
+      # ===== UPLOAD PIXELDRAIN =====
+      - name: Upload to Pixeldrain
+        if: steps.check.outputs.skip != 'true'
+        id: pd
         env:
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+        run: |
+          FILE="${{ steps.gdrive.outputs.file }}"
+          RESPONSE=$(curl -u ":$PD_API_KEY" \
+            -F "file=@${FILE}" \
+            https://pixeldrain.com/api/file)
+          ID=$(echo "$RESPONSE" | jq -r '.id')
+          
+          if [ "$ID" = "null" ] || [ -z "$ID" ]; then
+            echo "Upload failed"
+            echo "$RESPONSE"
+            exit 1
+          fi
+          echo "id=$ID" >> $GITHUB_OUTPUT
+          echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
+
+      # ===== TELEGRAM =====
+      - name: Send Telegram Notification
+        if: steps.check.outputs.skip != 'true'
+        env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          FILE="${{ steps.gdrive.outputs.file }}"
+          LINK="${{ steps.pd.outputs.link }}"
+          TEXT="<b>🚀 New HyperTN [${{ matrix.device }}] Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download Link</a>"
+          
+          curl -s -X POST \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="$TEXT" \
+            -d parse_mode="HTML"
 
-          set -e
-
-          export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
-          export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
-          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"YOUR_REFRESH_TOKEN","expiry":"2000-01-01T00:00:00Z"}'
-
-          touch rom_uploaded.txt
-
-          DEVICES=(
-            "Myron|1SigSDil1MVUYeozqGBmXj4thPhfkchXQ"
-            "Socrates|1oX7KqbgzmtteFnE_DvUYLa6n3cCTQfLV"
-          )
-
-          for ENTRY in "${DEVICES[@]}"; do
-
-            IFS='|' read DEVICE FOLDER_ID <<< "$ENTRY"
-
-            echo "========================="
-            echo "Processing $DEVICE"
-            echo "========================="
-
-            timeout 30s gdown --folder \
-              "https://drive.google.com/drive/folders/$FOLDER_ID" \
-              > gdown_log.txt 2>&1 || true
-
-            grep '\.7z' gdown_log.txt > files_list.txt || true
-
-            if [ ! -s files_list.txt ]; then
-              echo "No ROM found"
-              cat gdown_log.txt
-              continue
-            fi
-
-            LATEST_LINE=$(tail -n 1 files_list.txt)
-
-            FILE_NAME=$(echo "$LATEST_LINE" | sed 's/^.*Downloading //')
-            FILE_NAME=$(basename "$FILE_NAME")
-
-            echo "Latest: $FILE_NAME"
-
-            SKIP=false
-
-            if grep -Fq "$DEVICE|$FILE_NAME|" rom_uploaded.txt; then
-
-              OLD_ID=$(grep -F "$DEVICE|$FILE_NAME|" rom_uploaded.txt \
-                | head -n1 | cut -d'|' -f3)
-
-              RESPONSE=$(curl -s \
-                "https://pixeldrain.com/api/file/$OLD_ID/info")
-
-              SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
-
-              if [ "$SUCCESS" = "true" ]; then
-                echo "Already uploaded"
-                SKIP=true
-              fi
-            fi
-
-            if [ "$SKIP" = true ]; then
-              continue
-            fi
-
-            export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
-
-            rclone copy source_rom:/ . \
-              --include "$FILE_NAME" \
-              --drive-acknowledge-abuse \
-              --progress
-
-            ls -lh "$FILE_NAME"
-
-            RESPONSE=$(curl -u ":$PD_API_KEY" \
-              -F "file=@${FILE_NAME}" \
-              https://pixeldrain.com/api/file)
-
-            PD_ID=$(echo "$RESPONSE" | jq -r '.id')
-
-            if [ "$PD_ID" = "null" ] || [ -z "$PD_ID" ]; then
-              echo "Upload failed"
-              echo "$RESPONSE"
-              exit 1
-            fi
-
-            LINK="https://pixeldrain.com/u/$PD_ID"
-
-            TEXT="<b>🚀 New ${DEVICE} ROM Uploaded!</b>%0A%0A📦 <code>$FILE_NAME</code>%0A🔗 <a href=\"$LINK\">Download</a>"
-
-            curl -s -X POST \
-              "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-              -d chat_id="$CHAT_ID" \
-              -d text="$TEXT" \
-              -d parse_mode="HTML"
-
-            sed -i "\|^$DEVICE|$FILE_NAME|d" rom_uploaded.txt
-            echo "$DEVICE|$FILE_NAME|$PD_ID" >> rom_uploaded.txt
-
-            rm -f "$FILE_NAME"
-
-          done
-
-      - name: Push State
+      # ===== SAVE STATE =====
+      - name: Save State and Push
+        if: steps.check.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add rom_uploaded.txt
-          git commit -m "Update ROM states" || exit 0
-
-          git pull --rebase origin main
-          git push
+          
+          FILE="${{ steps.gdrive.outputs.file }}"
+          ID="${{ steps.pd.outputs.id }}"
+          STATE_FILE="rom_uploaded.txt"
+          
+          # Triển khai vòng lặp ngăn xung đột Push khi 2 luồng hoàn thành cùng lúc
+          for i in {1..5}; do
+            git pull --rebase origin main || true
+            touch "$STATE_FILE"
+            sed -i "\|^$FILE|d" "$STATE_FILE"
+            echo "$FILE|$ID" >> "$STATE_FILE"
+            
+            git add "$STATE_FILE"
+            if git commit -m "Update ROM ${{ matrix.device }}: $FILE"; then
+              if git push origin main; then
+                echo "✅ Đồng bộ hóa danh sách thành công!"
+                break
+              fi
+            else
+              echo "Không có thay đổi dữ liệu hoặc commit trùng lặp, bỏ qua..."
+              break
+            fi
+            echo "⚠️ Phát hiện xung đột Git, thử cấu trúc lại sau 5 giây... (Lần thử $i/5)"
+            sleep 5
+          done
