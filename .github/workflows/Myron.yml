@@ -23,9 +23,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Pull latest
-        run: git pull origin main || true
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
 
       - name: Install dependencies
         run: |
@@ -57,6 +61,7 @@ jobs:
         run: |
           FILE="${{ steps.rom.outputs.file }}"
           STATE_FILE="rom_uploaded.txt"
+
           touch "$STATE_FILE"
 
           echo "Checking: $FILE"
@@ -64,13 +69,12 @@ jobs:
           if grep -Fq "$FILE|" "$STATE_FILE"; then
             ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d '|' -f2)
 
-            API="https://pixeldrain.com/api/file/$ID/info"
-            RESPONSE=$(curl -s "$API")
+            RESPONSE=$(curl -s "https://pixeldrain.com/api/file/$ID/info")
             SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
 
             if [ "$SUCCESS" = "true" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
-              echo "File exists → SKIP"
+              echo "File exists on Pixeldrain → SKIP"
             else
               echo "skip=false" >> $GITHUB_OUTPUT
               echo "File deleted → Reupload"
@@ -84,7 +88,11 @@ jobs:
       - name: Download ROM
         if: steps.check.outputs.skip != 'true'
         run: |
-          aria2c -x 16 -s 16 -k 1M --continue=true \
+          aria2c \
+            -x 16 \
+            -s 16 \
+            -k 1M \
+            --continue=true \
             -o "${{ steps.rom.outputs.file }}" \
             "${{ steps.rom.outputs.url }}"
 
@@ -141,14 +149,28 @@ jobs:
           ID="${{ steps.pd.outputs.id }}"
           STATE_FILE="rom_uploaded.txt"
 
-          git pull --rebase origin main || true
+          git fetch origin main
+          git reset --hard origin/main
 
           touch "$STATE_FILE"
+
           sed -i "\|^$FILE|d" "$STATE_FILE"
           echo "$FILE|$ID" >> "$STATE_FILE"
 
           git add "$STATE_FILE"
           git commit -m "Update ${{ matrix.title }}: $FILE" || exit 0
 
-          git pull --rebase origin main
-          git push origin main
+          for i in {1..5}; do
+            git pull --rebase -X theirs origin main || true
+
+            if git push origin main; then
+              echo "Push success"
+              exit 0
+            fi
+
+            echo "Retry $i..."
+            sleep 10
+          done
+
+          echo "Push failed"
+          exit 1
