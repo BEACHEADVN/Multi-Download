@@ -45,7 +45,7 @@ jobs:
           sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
-      # ===== FIND LATEST ROM (ĐÃ SỬA LỖI QUÉT) =====
+      # ===== FIND LATEST ROM (SỬA ĐỊNH DẠNG FORMAT) =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
@@ -59,8 +59,10 @@ jobs:
           export RCLONE_CONFIG_SCAN_ROOT_FOLDER_ID="$FOLDER_ID"
 
           echo "=== Scan Google Drive folder via Rclone for [${{ matrix.device }}] ==="
-          # Quét danh sách xuất ra định dạng "Tên_file|ID", lọc file .7z và sắp xếp theo thứ tự
-          rclone lsf scan:/ --format "p|i" | grep "\.7z" | sort > files_list.txt || true
+          
+          # `--format "pi"` xuất ra: tên_file;ID_file hoặc khoảng trắng. 
+          # Dùng awk để chuyển đổi chuẩn thành định dạng "Tên_file|ID" nhằm khớp với lệnh cut phía dưới.
+          rclone lsf scan:/ --format "pi" | grep "\.7z" | awk '{print $1"|"$2}' | sort > files_list.txt || true
 
           if [ ! -s files_list.txt ]; then
             echo "❌ Không tìm thấy file .7z nào trong thư mục của ${{ matrix.device }}"
@@ -73,7 +75,7 @@ jobs:
           # Lấy dòng cuối cùng (file mới nhất)
           LATEST_LINE=$(tail -n 1 files_list.txt)
           
-          # Tách chuỗi chuẩn xác ra Tên file và ID file để truyền tiếp xuống các step sau
+          # Tách chuỗi ra Tên file và ID file để truyền tiếp xuống các step sau
           FILE_NAME=$(echo "$LATEST_LINE" | cut -d'|' -f1)
           FILE_ID=$(echo "$LATEST_LINE" | cut -d'|' -f2)
 
