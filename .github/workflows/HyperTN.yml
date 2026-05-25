@@ -45,7 +45,7 @@ jobs:
         run: |
           curl https://rclone.org/install.sh | sudo bash
 
-      # ===== FIND ROM =====
+      # ===== FIND LATEST =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
@@ -113,9 +113,8 @@ jobs:
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive.readonly"
           export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"YOUR_REFRESH_TOKEN","expiry":"2000-01-01T00:00:00Z"}'
-          export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
 
-          rclone copy source_rom:/ . \
+          rclone copy source_rom:{$FOLDER_ID} . \
             --include "$FILE_NAME" \
             --drive-acknowledge-abuse \
             --progress
