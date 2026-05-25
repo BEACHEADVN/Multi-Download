@@ -71,36 +71,27 @@ jobs:
           FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
           FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
 
-          echo "Latest: $FILE_NAME"
-
           echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
-          echo "id=$FILE_ID" >> $GITHUB_OUTPUT
 
       # ===== CHECK STATE =====
       - name: Check Uploaded State
         id: check
         run: |
           FILE="${{ steps.gdrive.outputs.file }}"
-          STATE_FILE="rom_uploaded.txt"
+          touch rom_uploaded.txt
 
-          touch "$STATE_FILE"
-
-          if grep -Fq "$FILE|" "$STATE_FILE"; then
-            ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d'|' -f2)
-
+          if grep -Fq "$FILE|" rom_uploaded.txt; then
+            ID=$(grep -F "$FILE|" rom_uploaded.txt | head -n1 | cut -d'|' -f2)
             RESPONSE=$(curl -s "https://pixeldrain.com/api/file/$ID/info")
             SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
 
             if [ "$SUCCESS" = "true" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
-              echo "Already uploaded"
             else
               echo "skip=false" >> $GITHUB_OUTPUT
-              echo "Missing -> reupload"
             fi
           else
             echo "skip=false" >> $GITHUB_OUTPUT
-            echo "New ROM"
           fi
 
       # ===== DOWNLOAD =====
@@ -111,22 +102,26 @@ jobs:
           FOLDER_ID="${{ matrix.folder }}"
 
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
-          export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive.readonly"
-          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"YOUR_REFRESH_TOKEN","expiry":"2000-01-01T00:00:00Z"}'
+          export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
 
-          rclone copy source_rom:{$FOLDER_ID} . \
+          # COPY NGUYÊN TOKEN + CONFIG TỪ FILE MYRON CŨ ĐANG CHẠY
+          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='PASTE_Y_NGUYEN'
+
+          export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
+
+          rclone copy source_rom:/ . \
             --include "$FILE_NAME" \
             --drive-acknowledge-abuse \
             --progress
 
       # ===== VERIFY =====
-      - name: Verify Downloaded File
+      - name: Verify
         if: steps.check.outputs.skip != 'true'
         run: |
           ls -lh "${{ steps.gdrive.outputs.file }}"
 
-      # ===== UPLOAD PIXELDRAIN =====
-      - name: Upload to Pixeldrain
+      # ===== UPLOAD =====
+      - name: Upload Pixeldrain
         if: steps.check.outputs.skip != 'true'
         id: pd
         env:
@@ -139,11 +134,6 @@ jobs:
             https://pixeldrain.com/api/file)
 
           ID=$(echo "$RESPONSE" | jq -r '.id')
-
-          if [ "$ID" = "null" ] || [ -z "$ID" ]; then
-            echo "$RESPONSE"
-            exit 1
-          fi
 
           echo "id=$ID" >> $GITHUB_OUTPUT
           echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
@@ -166,21 +156,20 @@ jobs:
             -d text="$TEXT" \
             -d parse_mode="HTML"
 
-      # ===== SAVE STATE =====
+      # ===== SAVE =====
       - name: Save State
         if: steps.check.outputs.skip != 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
 
           FILE="${{ steps.gdrive.outputs.file }}"
           ID="${{ steps.pd.outputs.id }}"
-          STATE_FILE="rom_uploaded.txt"
 
-          sed -i "\|^$FILE|d" "$STATE_FILE"
-          echo "$FILE|$ID" >> "$STATE_FILE"
+          sed -i "\|^$FILE|d" rom_uploaded.txt
+          echo "$FILE|$ID" >> rom_uploaded.txt
 
-          git add "$STATE_FILE"
+          git add rom_uploaded.txt
           git commit -m "Update ${{ matrix.name }}: $FILE" || exit 0
           git pull --rebase origin main
           git push
