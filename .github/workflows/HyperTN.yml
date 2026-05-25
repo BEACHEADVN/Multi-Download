@@ -13,14 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Khai báo tên thiết bị
+        # Định nghĩa 2 thiết bị chạy song song độc lập
         device: [Myron, Socrates]
         include:
           - device: Myron
             folder_id: "1SigSDil1MVUYeozqGBmXj4thPhfkchXQ"
           - device: Socrates
             folder_id: "1oX7KqbgzmtteFnE_DvUYLa6n3cCTQfLV"
-      # Nếu 1 máy lỗi, máy kia vẫn tiếp tục chạy bình thường
       fail-fast: false
 
     steps:
@@ -38,7 +37,6 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install gdown
           sudo apt-get update
           sudo apt-get install -y curl jq
 
@@ -47,34 +45,41 @@ jobs:
           sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
-      # ===== FIND LATEST ROM =====
+      # ===== FIND LATEST ROM (ĐÃ SỬA LỖI QUÉT) =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
           set -e
-          # Lấy folder_id tự động tương ứng với từng thiết bị đang chạy trong matrix
           FOLDER_ID="${{ matrix.folder_id }}"
           
-          echo "=== Scan Google Drive folder for [${{ matrix.device }}] ==="
-          timeout 20s gdown --folder \
-            "https://drive.google.com/drive/folders/$FOLDER_ID" \
-            > gdown_log.txt || true
-          
-          grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
-          
+          # Cấu hình nhanh một remote tạm thời để lấy danh sách file chuẩn xác nhất
+          export RCLONE_CONFIG_SCAN_TYPE="drive"
+          export RCLONE_CONFIG_SCAN_SCOPE="drive"
+          export RCLONE_CONFIG_SCAN_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
+          export RCLONE_CONFIG_SCAN_ROOT_FOLDER_ID="$FOLDER_ID"
+
+          echo "=== Scan Google Drive folder via Rclone for [${{ matrix.device }}] ==="
+          # Quét danh sách xuất ra định dạng "Tên_file|ID", lọc file .7z và sắp xếp theo thứ tự
+          rclone lsf scan:/ --format "p|i" | grep "\.7z" | sort > files_list.txt || true
+
           if [ ! -s files_list.txt ]; then
-            echo "❌ Không tìm thấy file .7z cho ${{ matrix.device }}"
+            echo "❌ Không tìm thấy file .7z nào trong thư mục của ${{ matrix.device }}"
             exit 1
           fi
-          
+
           echo "=== ROM found ==="
           cat files_list.txt
           
+          # Lấy dòng cuối cùng (file mới nhất)
           LATEST_LINE=$(tail -n 1 files_list.txt)
-          FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
-          FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
           
+          # Tách chuỗi chuẩn xác ra Tên file và ID file để truyền tiếp xuống các step sau
+          FILE_NAME=$(echo "$LATEST_LINE" | cut -d'|' -f1)
+          FILE_ID=$(echo "$LATEST_LINE" | cut -d'|' -f2)
+
           echo "Latest ${{ matrix.device }}: $FILE_NAME"
+          echo "id=$FILE_ID"
+          
           echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
           echo "id=$FILE_ID" >> $GITHUB_OUTPUT
 
@@ -151,7 +156,6 @@ jobs:
         run: |
           FILE="${{ steps.gdrive.outputs.file }}"
           LINK="${{ steps.pd.outputs.link }}"
-          # Thêm tên thiết bị chạy song song vào thông báo Telegram để phân biệt
           TEXT="<b>🚀 New HyperTN [${{ matrix.device }}] Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
           curl -s -X POST \
             "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
@@ -169,8 +173,7 @@ jobs:
           ID="${{ steps.pd.outputs.id }}"
           STATE_FILE="rom_uploaded.txt"
           
-          # Luồng song song đẩy file state cùng lúc có thể lỗi xung đột Git (conflict git push).
-          # Thêm vòng lặp kéo-thả cơ bản để đảm bảo push dữ liệu an toàn.
+          # Vòng lặp kéo/đẩy tự động rebase chống xung đột khi 2 luồng kết thúc sát giờ nhau
           for i in {1..5}; do
             git pull --rebase origin main || true
             touch "$STATE_FILE"
