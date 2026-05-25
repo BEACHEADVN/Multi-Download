@@ -182,15 +182,21 @@ jobs:
           sed -i "\|^$FILE|d" rom_uploaded.txt
           echo "$FILE|$ID" >> rom_uploaded.txt
 
-          git add rom_uploaded.txt
-          git commit -m "Update ${{ matrix.name }}: $FILE" || exit 0
-
           for i in {1..5}; do
-            git pull origin main --no-rebase --strategy-option theirs || true
-            git add rom_uploaded.txt
-            git commit --amend --no-edit || true
+            git fetch origin main
 
-            if git push origin main; then
+            if [ -f origin_state.txt ]; then rm origin_state.txt; fi
+            git show origin/main:rom_uploaded.txt > origin_state.txt 2>/dev/null || touch origin_state.txt
+
+            cat origin_state.txt rom_uploaded.txt \
+              | sort -u > merged.txt
+
+            mv merged.txt rom_uploaded.txt
+
+            git add rom_uploaded.txt
+            git commit -m "Update ${{ matrix.name }}: $FILE" || true
+
+            if git push origin HEAD:main; then
               exit 0
             fi
 
