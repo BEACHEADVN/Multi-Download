@@ -16,6 +16,7 @@ jobs:
         include:
           - name: Myron
             folder: 1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m
+
           - name: Socrates
             folder: 1NloAevz_eLBLBsWlGuCYageoTia3MfSm
 
@@ -45,11 +46,16 @@ jobs:
           sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
+      # ===== FIND LATEST =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
           set -e
           FOLDER_ID="${{ matrix.folder }}"
+
+          echo "========================="
+          echo "Processing ${{ matrix.name }}"
+          echo "========================="
 
           timeout 20s gdown --folder \
           "https://drive.google.com/drive/folders/$FOLDER_ID" \
@@ -57,15 +63,21 @@ jobs:
 
           grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
 
-          [ -s files_list.txt ] || exit 1
+          if [ ! -s files_list.txt ]; then
+            echo "No ROM found"
+            exit 1
+          fi
 
           LATEST_LINE=$(tail -n 1 files_list.txt)
           FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
           FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
 
+          echo "Latest: $FILE_NAME"
+
           echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
           echo "id=$FILE_ID" >> $GITHUB_OUTPUT
 
+      # ===== CHECK STATE =====
       - name: Check Uploaded State
         id: check
         run: |
@@ -76,18 +88,23 @@ jobs:
 
           if grep -Fq "$FILE|" "$STATE_FILE"; then
             ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d'|' -f2)
+
             RESPONSE=$(curl -s "https://pixeldrain.com/api/file/$ID/info")
             SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
 
             if [ "$SUCCESS" = "true" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
+              echo "Already uploaded"
             else
               echo "skip=false" >> $GITHUB_OUTPUT
+              echo "Missing -> reupload"
             fi
           else
             echo "skip=false" >> $GITHUB_OUTPUT
+            echo "New ROM"
           fi
 
+      # ===== DOWNLOAD =====
       - name: Download ROM
         if: steps.check.outputs.skip != 'true'
         run: |
@@ -96,9 +113,7 @@ jobs:
 
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
-
           export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
-
           export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
 
           rclone copy source_rom:/ . \
@@ -106,10 +121,13 @@ jobs:
             --drive-acknowledge-abuse \
             --progress
 
-      - name: Verify
+      # ===== VERIFY =====
+      - name: Verify Downloaded File
         if: steps.check.outputs.skip != 'true'
-        run: ls -lh "${{ steps.gdrive.outputs.file }}"
+        run: |
+          ls -lh "${{ steps.gdrive.outputs.file }}"
 
+      # ===== UPLOAD =====
       - name: Upload to Pixeldrain
         if: steps.check.outputs.skip != 'true'
         id: pd
@@ -124,10 +142,16 @@ jobs:
 
           ID=$(echo "$RESPONSE" | jq -r '.id')
 
+          if [ "$ID" = "null" ] || [ -z "$ID" ]; then
+            echo "$RESPONSE"
+            exit 1
+          fi
+
           echo "id=$ID" >> $GITHUB_OUTPUT
           echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
 
-      - name: Telegram
+      # ===== TELEGRAM =====
+      - name: Telegram Notify
         if: steps.check.outputs.skip != 'true'
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -144,6 +168,7 @@ jobs:
             -d text="$TEXT" \
             -d parse_mode="HTML"
 
+      # ===== SAVE =====
       - name: Save State
         if: steps.check.outputs.skip != 'true'
         run: |
@@ -153,10 +178,23 @@ jobs:
           FILE="${{ steps.gdrive.outputs.file }}"
           ID="${{ steps.pd.outputs.id }}"
 
+          touch rom_uploaded.txt
           sed -i "\|^$FILE|d" rom_uploaded.txt
           echo "$FILE|$ID" >> rom_uploaded.txt
 
           git add rom_uploaded.txt
           git commit -m "Update ${{ matrix.name }}: $FILE" || exit 0
-          git pull --rebase origin main
-          git push origin main
+
+          for i in {1..5}; do
+            git pull origin main --no-rebase --strategy-option theirs || true
+            git add rom_uploaded.txt
+            git commit --amend --no-edit || true
+
+            if git push origin main; then
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          exit 1
