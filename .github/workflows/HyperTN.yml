@@ -16,7 +16,6 @@ jobs:
         include:
           - name: Myron
             folder: 1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m
-
           - name: Socrates
             folder: 1NloAevz_eLBLBsWlGuCYageoTia3MfSm
 
@@ -43,45 +42,40 @@ jobs:
 
       - name: Install rclone
         run: |
+          sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
-      # ===== FIND LATEST =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
           set -e
           FOLDER_ID="${{ matrix.folder }}"
 
-          echo "========================="
-          echo "Processing ${{ matrix.name }}"
-          echo "========================="
-
-          timeout 30s gdown --folder \
-            "https://drive.google.com/drive/folders/$FOLDER_ID" \
-            > gdown_log.txt || true
+          timeout 20s gdown --folder \
+          "https://drive.google.com/drive/folders/$FOLDER_ID" \
+          > gdown_log.txt || true
 
           grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
 
-          if [ ! -s files_list.txt ]; then
-            echo "No ROM found"
-            exit 1
-          fi
+          [ -s files_list.txt ] || exit 1
 
           LATEST_LINE=$(tail -n 1 files_list.txt)
           FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
           FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
 
           echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
+          echo "id=$FILE_ID" >> $GITHUB_OUTPUT
 
-      # ===== CHECK STATE =====
       - name: Check Uploaded State
         id: check
         run: |
           FILE="${{ steps.gdrive.outputs.file }}"
-          touch rom_uploaded.txt
+          STATE_FILE="rom_uploaded.txt"
 
-          if grep -Fq "$FILE|" rom_uploaded.txt; then
-            ID=$(grep -F "$FILE|" rom_uploaded.txt | head -n1 | cut -d'|' -f2)
+          touch "$STATE_FILE"
+
+          if grep -Fq "$FILE|" "$STATE_FILE"; then
+            ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d'|' -f2)
             RESPONSE=$(curl -s "https://pixeldrain.com/api/file/$ID/info")
             SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
 
@@ -94,7 +88,6 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      # ===== DOWNLOAD =====
       - name: Download ROM
         if: steps.check.outputs.skip != 'true'
         run: |
@@ -104,8 +97,7 @@ jobs:
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
 
-          # COPY NGUYÊN TOKEN + CONFIG TỪ FILE MYRON CŨ ĐANG CHẠY
-          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='PASTE_Y_NGUYEN'
+          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
 
           export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
 
@@ -114,14 +106,11 @@ jobs:
             --drive-acknowledge-abuse \
             --progress
 
-      # ===== VERIFY =====
       - name: Verify
         if: steps.check.outputs.skip != 'true'
-        run: |
-          ls -lh "${{ steps.gdrive.outputs.file }}"
+        run: ls -lh "${{ steps.gdrive.outputs.file }}"
 
-      # ===== UPLOAD =====
-      - name: Upload Pixeldrain
+      - name: Upload to Pixeldrain
         if: steps.check.outputs.skip != 'true'
         id: pd
         env:
@@ -138,8 +127,7 @@ jobs:
           echo "id=$ID" >> $GITHUB_OUTPUT
           echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
 
-      # ===== TELEGRAM =====
-      - name: Telegram Notify
+      - name: Telegram
         if: steps.check.outputs.skip != 'true'
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -156,12 +144,11 @@ jobs:
             -d text="$TEXT" \
             -d parse_mode="HTML"
 
-      # ===== SAVE =====
       - name: Save State
         if: steps.check.outputs.skip != 'true'
         run: |
-          git config user.name github-actions[bot]
-          git config user.email github-actions[bot]@users.noreply.github.com
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
           FILE="${{ steps.gdrive.outputs.file }}"
           ID="${{ steps.pd.outputs.id }}"
@@ -172,4 +159,4 @@ jobs:
           git add rom_uploaded.txt
           git commit -m "Update ${{ matrix.name }}: $FILE" || exit 0
           git pull --rebase origin main
-          git push
+          git push origin main
