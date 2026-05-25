@@ -1,4 +1,4 @@
-name: Myron ROM
+name: XiaomiEU ROM Monitor
 
 on:
   workflow_dispatch:
@@ -11,6 +11,15 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: MYRON
+            title: Myron
+          - device: SOCRATES
+            title: Socrates
 
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +39,13 @@ jobs:
           BASE_URL="https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/"
           HTML=$(curl -sL "$BASE_URL")
 
-          FILE=$(echo "$HTML" | grep -o 'xiaomi.eu_MYRON_OS3[^"]*zip' | sort -V | tail -n 1)
+          FILE=$(echo "$HTML" | grep -o "xiaomi.eu_${{ matrix.device }}_OS3[^\"]*zip" | sort -V | tail -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "No ROM found"
+            exit 1
+          fi
+
           URL="https://downloads.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/$FILE"
 
           echo "file=$FILE" >> $GITHUB_OUTPUT
@@ -42,30 +57,27 @@ jobs:
         run: |
           FILE="${{ steps.rom.outputs.file }}"
           STATE_FILE="rom_uploaded.txt"
-          touch $STATE_FILE
+          touch "$STATE_FILE"
 
           echo "Checking: $FILE"
 
           if grep -Fq "$FILE|" "$STATE_FILE"; then
             ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d '|' -f2)
 
-            echo "Found in state with ID: $ID"
-
             API="https://pixeldrain.com/api/file/$ID/info"
             RESPONSE=$(curl -s "$API")
-
             SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
 
             if [ "$SUCCESS" = "true" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
-              echo "File vẫn tồn tại trên Pixeldrain → SKIP"
+              echo "File exists → SKIP"
             else
               echo "skip=false" >> $GITHUB_OUTPUT
-              echo "File đã bị xoá → upload lại"
+              echo "File deleted → Reupload"
             fi
           else
             echo "skip=false" >> $GITHUB_OUTPUT
-            echo "File mới → upload"
+            echo "New file → Upload"
           fi
 
       # ===== DOWNLOAD =====
@@ -110,7 +122,7 @@ jobs:
           FILE="${{ steps.rom.outputs.file }}"
           LINK="${{ steps.pd.outputs.link }}"
 
-          TEXT="<b>🚀 New Myron ROM Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
+          TEXT="<b>🚀 New ${{ matrix.title }} ROM Uploaded!</b>%0A%0A📦 File: <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
 
           curl -s -X POST \
             "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
@@ -129,12 +141,14 @@ jobs:
           ID="${{ steps.pd.outputs.id }}"
           STATE_FILE="rom_uploaded.txt"
 
-          sed -i "\|^$FILE|d" "$STATE_FILE"
+          git pull --rebase origin main || true
 
+          touch "$STATE_FILE"
+          sed -i "\|^$FILE|d" "$STATE_FILE"
           echo "$FILE|$ID" >> "$STATE_FILE"
 
           git add "$STATE_FILE"
-          git commit -m "Update ROM: $FILE" || exit 0
+          git commit -m "Update ${{ matrix.title }}: $FILE" || exit 0
 
           git pull --rebase origin main
           git push origin main
