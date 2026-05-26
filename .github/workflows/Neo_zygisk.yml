@@ -135,7 +135,6 @@ jobs:
               date_str = "N/A"
 
           caption = (
-              f"<b>🚀 NeoZygisk Update!</b>\n\n"
               f"📦 Phiên bản: <code>{os.environ['TAG']}</code>\n"
               f"📊 Dung lượng: <code>{get_size(os.environ['SIZE'])}</code>\n"
               f"📅 Cập nhật: <code>{date_str}</code>"
