@@ -1,0 +1,139 @@
+name: KernelSU-Next
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+permissions:
+  contents: write
+
+jobs:
+  check-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull latest
+        run: git pull origin main || true
+
+      # ===== LẤY THÔNG TIN APK (BỎ SPOOFED) =====
+      - name: Get Latest Release
+        id: ksu_next
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: python
+        run: |
+          import os, requests
+          repo = "KernelSU-Next/KernelSU-Next"
+          headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
+          try:
+              response = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", headers=headers)
+              data = response.json()
+              tag = data.get('tag_name', '')
+              date = data.get('published_at', '')
+              html_url = data.get('html_url', '')
+              
+              assets = data.get('assets', [])
+              # Lọc lấy APK manager nhưng BỎ bản spoofed
+              apk_asset = next((a for a in assets if a['name'].endswith(".apk") and "spoofed" not in a['name'].lower()), None)
+              
+              if apk_asset:
+                  file_name = apk_asset['name']
+                  dl_url = apk_asset['browser_download_url']
+                  size = apk_asset['size']
+              else:
+                  print("No normal APK found!"); exit(1)
+              
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"tag={tag}\nfile_name={file_name}\ndl_url={dl_url}\nsize={size}\ndate={date}\nhtml_url={html_url}\n")
+          except Exception as e:
+              print(f"Error: {e}"); exit(1)
+
+      # ===== KIỂM TRA PHIÊN BẢN =====
+      - name: Check State
+        id: check
+        run: |
+          touch ksu_next_manager_state.txt
+          if [ "${{ steps.ksu_next.outputs.tag }}" = "$(cat ksu_next_manager_state.txt)" ]; then 
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else 
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ===== TẢI APK =====
+      - name: Download APK
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          curl -L -o "${{ steps.ksu_next.outputs.file_name }}" "${{ steps.ksu_next.outputs.dl_url }}"
+
+      - name: Send Notification to Telegram
+        if: steps.check.outputs.skip != 'true'
+        uses: xireiki/channel-post@v1
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_USER_ID }}
+          context: |
+            https://github.com/KernelSU-Next/KernelSU-Next
+          parse_mode: HTML
+          method: sendMessage
+
+      # ===== GỬI APK VỚI NAME CARD REPO =====
+      - name: Upload to Telegram
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ steps.ksu_next.outputs.tag }}
+          URL: ${{ steps.ksu_next.outputs.html_url }}
+          SIZE: ${{ steps.ksu_next.outputs.size }}
+          DATE: ${{ steps.ksu_next.outputs.date }}
+          FILE_NAME: ${{ steps.ksu_next.outputs.file_name }}
+        shell: python
+        run: |
+          import os, requests, datetime
+          
+          def get_size(b):
+              b = int(b)
+              for unit in ['B','KB','MB']:
+                  if b < 1024: return f"{b:.2f} {unit}"
+                  b /= 1024
+              return f"{b:.2f} MB"
+
+          bot_token = os.environ['BOT_TOKEN']
+          chat_id = os.environ['CHAT_ID']
+          tag, url = os.environ['TAG'], os.environ['URL']
+          size = get_size(os.environ['SIZE'])
+          file_name = os.environ['FILE_NAME']
+          
+          try:
+              date_obj = datetime.datetime.strptime(os.environ['DATE'], "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(hours=7)
+              date_str = date_obj.strftime("%d/%m/%Y %H:%M")
+          except: date_str = "N/A"
+
+          # Name Card Format
+          caption = (f"<b>📱 KernelSU-Next Manager Update</b>\n"
+                     f"<i>Official Release từ KernelSU-Next</i>\n"
+                     f"━━━━━━━━━━━━━━━━━━\n"
+                     f"📦 <b>Phiên bản:</b> <code>{tag}</code>\n"
+                     f"📊 <b>Dung lượng:</b> <code>{size}</code>\n"
+                     f"📅 <b>Ngày cập nhật:</b> <code>{date_str}</code>\n\n"
+                     f"🔗 <b>Repository:</b> <a href='https://github.com/KernelSU-Next/KernelSU-Next'>KernelSU-Next/KernelSU-Next</a>\n"
+                     f"📝 <a href='{url}'>Xem nhật ký thay đổi (Changelog)</a>")
+          
+          with open(file_name, 'rb') as f:
+              files = {'document': (file_name, f)}
+              data = {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}
+              requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=data, files=files)
+
+      # ===== LƯU TRẠNG THÁI =====
+      - name: Save new state
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "${{ steps.ksu_next.outputs.tag }}" > ksu_next_manager_state.txt
+          git add ksu_next_manager_state.txt
+          git commit -m "Update state: ${{ steps.ksu_next.outputs.tag }}" || exit 0
+          git pull --rebase origin main
+          git push origin main
