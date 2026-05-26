@@ -113,9 +113,6 @@ jobs:
 
           # Name Card Format
           caption = (f"<b>📱 KernelSU-Next Manager Update</b>\n"
-                     f"<i>Official Release từ KernelSU-Next</i>\n"
-                     f"━━━━━━━━━━━━━━━━━━\n"
-                     f"📦 <b>Phiên bản:</b> <code>{tag}</code>\n"
                      f"📊 <b>Dung lượng:</b> <code>{size}</code>\n"
                      f"📅 <b>Ngày cập nhật:</b> <code>{date_str}</code>\n\n"
                      f"🔗 <b>Repository:</b> <a href='https://github.com/KernelSU-Next/KernelSU-Next'>KernelSU-Next/KernelSU-Next</a>\n"
