@@ -54,8 +54,8 @@ jobs:
       - name: Check State
         id: check
         run: |
-          touch ksu_next_manager_state.txt
-          if [ "${{ steps.ksu_next.outputs.tag }}" = "$(cat ksu_next_manager_state.txt)" ]; then 
+          touch kernelsu_next.txt
+          if [ "${{ steps.ksu_next.outputs.tag }}" = "$(cat kernelsu_next.txt)" ]; then 
             echo "skip=true" >> $GITHUB_OUTPUT
           else 
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -132,8 +132,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          echo "${{ steps.ksu_next.outputs.tag }}" > ksu_next_manager_state.txt
-          git add ksu_next_manager_state.txt
+          echo "${{ steps.ksu_next.outputs.tag }}" > kernelsu_next.txt
+          git add kernelsu_next.txt
           git commit -m "Update state: ${{ steps.ksu_next.outputs.tag }}" || exit 0
           git pull --rebase origin main
           git push origin main
