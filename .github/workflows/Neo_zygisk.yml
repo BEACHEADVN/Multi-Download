@@ -18,7 +18,7 @@ jobs:
       - name: Pull latest
         run: git pull origin main || true
 
-      - name: Get Release Info (Safe Mode)
+      - name: Get Release Info
         id: info
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -36,21 +36,30 @@ jobs:
               )
               data = response.json()
 
-              tag = data.get('tag_name', '')
-              date = data.get('published_at', data.get('created_at', ''))
+              tag = data.get("tag_name", "")
+              date = data.get("published_at", data.get("created_at", ""))
 
-              assets = data.get('assets', [])
+              assets = data.get("assets", [])
+
+              # chỉ lấy bản release thường, bỏ debug
               zip_asset = next(
-                  (a for a in assets if a['name'].endswith('.zip')),
+                  (
+                      a for a in assets
+                      if a["name"].endswith(".zip")
+                      and "debug" not in a["name"].lower()
+                  ),
                   None
               )
 
-              file_name = zip_asset['name'] if zip_asset else f"NeoZygisk-{tag}.zip"
-              dl_url = zip_asset['browser_download_url'] if zip_asset else \
-                  f"https://github.com/{repo}/archive/refs/tags/{tag}.zip"
-              size = zip_asset['size'] if zip_asset else 0
+              if not zip_asset:
+                  print("No normal release zip found")
+                  exit(1)
 
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              file_name = zip_asset["name"]
+              dl_url = zip_asset["browser_download_url"]
+              size = zip_asset["size"]
+
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                   f.write(
                       f"tag={tag}\n"
                       f"file_name={file_name}\n"
@@ -69,49 +78,54 @@ jobs:
           touch neozygisk_state.txt
           if [ "${{ steps.info.outputs.tag }}" = "$(cat neozygisk_state.txt)" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Download
         if: steps.check.outputs.skip != 'true'
         run: |
-          curl -L -o "${{ steps.info.outputs.file_name }}" \
-          "${{ steps.info.outputs.dl_url }}"
+          curl -L \
+            -o "${{ steps.info.outputs.file_name }}" \
+            "${{ steps.info.outputs.dl_url }}"
 
-      - name: Send Notification to Telegram
+      - name: Send Notification
         if: steps.check.outputs.skip != 'true'
         uses: xireiki/channel-post@v1
         with:
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_USER_ID }}
           context: |
-            <a href="https://github.com/JingMatrix/NeoZygisk">https://github.com/JingMatrix/NeoZygisk</a>
+            <a href="https://github.com/JingMatrix/NeoZygisk">
+            https://github.com/JingMatrix/NeoZygisk
+            </a>
           parse_mode: HTML
           method: sendMessage
 
-      - name: Telegram
+      - name: Upload to Telegram
         if: steps.check.outputs.skip != 'true'
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ steps.info.outputs.tag }}
+          SIZE: ${{ steps.info.outputs.size }}
+          DATE: ${{ steps.info.outputs.date }}
+          FILE_NAME: ${{ steps.info.outputs.file_name }}
         shell: python
         run: |
           import os, requests, datetime
 
           def get_size(b):
               b = int(b)
-              for unit in ['B','KB','MB']:
+              for unit in ["B", "KB", "MB"]:
                   if b < 1024:
                       return f"{b:.2f} {unit}"
                   b /= 1024
               return f"{b:.2f} GB"
 
-          tag = "${{ steps.info.outputs.tag }}"
-          file_name = "${{ steps.info.outputs.file_name }}"
-          size = get_size("${{ steps.info.outputs.size }}")
-
           try:
               date_obj = datetime.datetime.strptime(
-                  "${{ steps.info.outputs.date }}",
+                  os.environ["DATE"],
                   "%Y-%m-%dT%H:%M:%SZ"
               ) + datetime.timedelta(hours=7)
 
@@ -122,20 +136,20 @@ jobs:
 
           caption = (
               f"<b>🚀 NeoZygisk Update!</b>\n\n"
-              f"📦 Phiên bản: <code>{tag}</code>\n"
-              f"📊 Dung lượng: <code>{size}</code>\n"
+              f"📦 Phiên bản: <code>{os.environ['TAG']}</code>\n"
+              f"📊 Dung lượng: <code>{get_size(os.environ['SIZE'])}</code>\n"
               f"📅 Cập nhật: <code>{date_str}</code>"
           )
 
-          with open(file_name, 'rb') as f:
+          with open(os.environ["FILE_NAME"], "rb") as f:
               requests.post(
                   f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendDocument",
                   data={
-                      'chat_id': os.environ['CHAT_ID'],
-                      'caption': caption,
-                      'parse_mode': 'HTML'
+                      "chat_id": os.environ["CHAT_ID"],
+                      "caption": caption,
+                      "parse_mode": "HTML"
                   },
-                  files={'document': (file_name, f)}
+                  files={"document": (os.environ["FILE_NAME"], f)}
               )
 
       - name: Save State
@@ -143,10 +157,11 @@ jobs:
         run: |
           echo "${{ steps.info.outputs.tag }}" > neozygisk_state.txt
 
-          git config user.name "actions"
-          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add neozygisk_state.txt
           git commit -m "Update NeoZygisk to ${{ steps.info.outputs.tag }}" || exit 0
+
           git pull --rebase origin main
           git push
