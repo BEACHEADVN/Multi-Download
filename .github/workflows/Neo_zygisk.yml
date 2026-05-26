@@ -1,0 +1,152 @@
+name: NeoZygisk
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull latest
+        run: git pull origin main || true
+
+      - name: Get Release Info (Safe Mode)
+        id: info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: python
+        run: |
+          import os, requests
+
+          repo = "JingMatrix/NeoZygisk"
+          headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
+
+          try:
+              response = requests.get(
+                  f"https://api.github.com/repos/{repo}/releases/latest",
+                  headers=headers
+              )
+              data = response.json()
+
+              tag = data.get('tag_name', '')
+              date = data.get('published_at', data.get('created_at', ''))
+
+              assets = data.get('assets', [])
+              zip_asset = next(
+                  (a for a in assets if a['name'].endswith('.zip')),
+                  None
+              )
+
+              file_name = zip_asset['name'] if zip_asset else f"NeoZygisk-{tag}.zip"
+              dl_url = zip_asset['browser_download_url'] if zip_asset else \
+                  f"https://github.com/{repo}/archive/refs/tags/{tag}.zip"
+              size = zip_asset['size'] if zip_asset else 0
+
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(
+                      f"tag={tag}\n"
+                      f"file_name={file_name}\n"
+                      f"dl_url={dl_url}\n"
+                      f"size={size}\n"
+                      f"date={date}\n"
+                  )
+
+          except Exception as e:
+              print(f"Error: {e}")
+              exit(1)
+
+      - name: Check State
+        id: check
+        run: |
+          touch neozygisk_state.txt
+          if [ "${{ steps.info.outputs.tag }}" = "$(cat neozygisk_state.txt)" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          curl -L -o "${{ steps.info.outputs.file_name }}" \
+          "${{ steps.info.outputs.dl_url }}"
+
+      - name: Send Notification to Telegram
+        if: steps.check.outputs.skip != 'true'
+        uses: xireiki/channel-post@v1
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_USER_ID }}
+          context: |
+            <a href="https://github.com/JingMatrix/NeoZygisk">https://github.com/JingMatrix/NeoZygisk</a>
+          parse_mode: HTML
+          method: sendMessage
+
+      - name: Telegram
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: python
+        run: |
+          import os, requests, datetime
+
+          def get_size(b):
+              b = int(b)
+              for unit in ['B','KB','MB']:
+                  if b < 1024:
+                      return f"{b:.2f} {unit}"
+                  b /= 1024
+              return f"{b:.2f} GB"
+
+          tag = "${{ steps.info.outputs.tag }}"
+          file_name = "${{ steps.info.outputs.file_name }}"
+          size = get_size("${{ steps.info.outputs.size }}")
+
+          try:
+              date_obj = datetime.datetime.strptime(
+                  "${{ steps.info.outputs.date }}",
+                  "%Y-%m-%dT%H:%M:%SZ"
+              ) + datetime.timedelta(hours=7)
+
+              date_str = date_obj.strftime("%d/%m/%Y %H:%M")
+
+          except:
+              date_str = "N/A"
+
+          caption = (
+              f"<b>🚀 NeoZygisk Update!</b>\n\n"
+              f"📦 Phiên bản: <code>{tag}</code>\n"
+              f"📊 Dung lượng: <code>{size}</code>\n"
+              f"📅 Cập nhật: <code>{date_str}</code>"
+          )
+
+          with open(file_name, 'rb') as f:
+              requests.post(
+                  f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendDocument",
+                  data={
+                      'chat_id': os.environ['CHAT_ID'],
+                      'caption': caption,
+                      'parse_mode': 'HTML'
+                  },
+                  files={'document': (file_name, f)}
+              )
+
+      - name: Save State
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          echo "${{ steps.info.outputs.tag }}" > neozygisk_state.txt
+
+          git config user.name "actions"
+          git config user.email "actions@github.com"
+
+          git add neozygisk_state.txt
+          git commit -m "Update NeoZygisk to ${{ steps.info.outputs.tag }}" || exit 0
+          git pull --rebase origin main
+          git push
