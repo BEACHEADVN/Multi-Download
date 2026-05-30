@@ -54,34 +54,29 @@ jobs:
         id: gdrive
         run: |
           set -e
+      
           FOLDER_ID="${{ matrix.folder }}"
-
-          echo "========================="
-          echo "Processing ${{ matrix.name }}"
-          echo "========================="
-
-          timeout 30s gdown --folder --remaining-ok \
-            "https://drive.google.com/drive/folders/$FOLDER_ID" \
-            > gdown_log.txt 2>&1 || true
-
-          cat gdown_log.txt
-
-          FILE_NAME=$(grep "^To:" gdown_log.txt | tail -n1 | sed 's/^To: .*\/\([^\/]*\)$/\1/' || true)
-
-          FILE_ID=$(grep "https://drive.google.com/uc?id=" gdown_log.txt \
-            | head -n1 \
-            | sed -E 's/.*id=([A-Za-z0-9_-]+).*/\1/' || true)
-
-          if [ -z "$FILE_NAME" ] || [ -z "$FILE_ID" ]; then
+      
+          export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
+          export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
+          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
+          export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
+      
+          rclone lsf source_rom:/ \
+            --files-only \
+            --format "tp" \
+            > files.txt
+      
+          FILE_NAME=$(sort files.txt | tail -n1)
+      
+          if [ -z "$FILE_NAME" ]; then
             echo "No ROM found"
             exit 1
           fi
-
+      
           echo "Latest: $FILE_NAME"
-          echo "ID: $FILE_ID"
-
+      
           echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
-          echo "id=$FILE_ID" >> $GITHUB_OUTPUT
 
       # ===== CHECK STATE =====
       - name: Check Uploaded State
@@ -110,28 +105,27 @@ jobs:
             echo "New ROM"
           fi
 
-      # ===== DOWNLOAD =====
       - name: Download ROM
         if: steps.check.outputs.skip != 'true'
         run: |
           FILE_NAME="${{ steps.gdrive.outputs.file }}"
           FOLDER_ID="${{ matrix.folder }}"
-
+      
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
           export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
-
+      
           rclone copy source_rom:/ . \
             --include "$FILE_NAME" \
             --drive-acknowledge-abuse \
             --progress
-
-      # ===== VERIFY =====
-      - name: Verify Downloaded File
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          ls -lh "${{ steps.gdrive.outputs.file }}"
+      
+            # ===== VERIFY =====
+            - name: Verify Downloaded File
+              if: steps.check.outputs.skip != 'true'
+              run: |
+                ls -lh "${{ steps.gdrive.outputs.file }}"
 
       # ===== UPLOAD =====
       - name: Upload to Pixeldrain
