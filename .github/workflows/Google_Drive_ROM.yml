@@ -50,7 +50,6 @@ jobs:
           sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
-      # ===== FIND LATEST =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
@@ -61,22 +60,25 @@ jobs:
           echo "Processing ${{ matrix.name }}"
           echo "========================="
 
-          timeout 20s gdown --folder \
-          "https://drive.google.com/drive/folders/$FOLDER_ID" \
-          > gdown_log.txt || true
+          timeout 30s gdown --folder --remaining-ok \
+            "https://drive.google.com/drive/folders/$FOLDER_ID" \
+            > gdown_log.txt 2>&1 || true
 
-          grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
+          cat gdown_log.txt
 
-          if [ ! -s files_list.txt ]; then
+          FILE_NAME=$(grep "^To:" gdown_log.txt | tail -n1 | sed 's/^To: .*\/\([^\/]*\)$/\1/' || true)
+
+          FILE_ID=$(grep "https://drive.google.com/uc?id=" gdown_log.txt \
+            | head -n1 \
+            | sed -E 's/.*id=([A-Za-z0-9_-]+).*/\1/' || true)
+
+          if [ -z "$FILE_NAME" ] || [ -z "$FILE_ID" ]; then
             echo "No ROM found"
             exit 1
           fi
 
-          LATEST_LINE=$(tail -n 1 files_list.txt)
-          FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
-          FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
-
           echo "Latest: $FILE_NAME"
+          echo "ID: $FILE_ID"
 
           echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
           echo "id=$FILE_ID" >> $GITHUB_OUTPUT
