@@ -50,34 +50,36 @@ jobs:
           sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
-      - name: Parse Folder and Find Latest
+            - name: Parse Folder and Find Latest
         id: gdrive
         run: |
           set -e
-      
+
           FOLDER_ID="${{ matrix.folder }}"
-      
+
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
           export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
-      
+
           rclone lsf source_rom:/ \
             --files-only \
             --format "tp" \
             > files.txt
-      
-          FILE_NAME=$(sort files.txt | tail -n1)
-      
+
+          LATEST=$(sort files.txt | tail -n1)
+
+          FILE_NAME=$(echo "$LATEST" | cut -d';' -f2-)
+
           if [ -z "$FILE_NAME" ]; then
             echo "No ROM found"
             exit 1
           fi
-      
-          echo "Latest: $FILE_NAME"
-      
-          echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
 
+          echo "Latest: $FILE_NAME"
+
+          echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
+          
       # ===== CHECK STATE =====
       - name: Check Uploaded State
         id: check
@@ -105,27 +107,26 @@ jobs:
             echo "New ROM"
           fi
 
-      - name: Download ROM
+            - name: Download ROM
         if: steps.check.outputs.skip != 'true'
         run: |
           FILE_NAME="${{ steps.gdrive.outputs.file }}"
           FOLDER_ID="${{ matrix.folder }}"
-      
+
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
           export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
-      
+
           rclone copy source_rom:/ . \
             --include "$FILE_NAME" \
             --drive-acknowledge-abuse \
             --progress
-      
-            # ===== VERIFY =====
-            - name: Verify Downloaded File
-              if: steps.check.outputs.skip != 'true'
-              run: |
-                ls -lh "${{ steps.gdrive.outputs.file }}"
+
+      - name: Verify Downloaded File
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          ls -lh "${{ steps.gdrive.outputs.file }}"
 
       # ===== UPLOAD =====
       - name: Upload to Pixeldrain
