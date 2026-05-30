@@ -1,4 +1,4 @@
-Release: v2.1.0-r4
-AK3_OP15_OOS16_android16-6.12.23_KSUN_33150_SuSFS_v2.1.0.zip
-Dung lượng: 18.95 MB
-Cập nhật: 21/05/2026 01:03
+Release: v2.1.0-r5
+AK3_OP15_OOS16_android16-6.12.23_KSUN_33168_SuSFS_v2.1.0.zip
+Dung lượng: 18.86 MB
+Cập nhật: 31/05/2026 00:57
