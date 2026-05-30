@@ -15,14 +15,14 @@ jobs:
       matrix:
         include:
           - name: MyronTN
-            folder: 1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m
+            folder: 1edHAXPoKu0F5rcy5sm3KRkBNsZ1qvyU5
           - name: MyronHyperUR
-            folder: 1ETXIK5W2zA4OHyJdIA9us7AZVULZeQxP
+            folder: xa322vIBdQu-7eNP_f1i-wM-5RQM1kqa
 
           - name: SocratesTN
-            folder: 1NloAevz_eLBLBsWlGuCYageoTia3MfSm
+            folder: 1xx6O3riTljP4r10686cFxfWjLbHukp-p
           - name: SocratesHyperUR
-            folder: 15EWCyEYYWcNEAovxdAljMg2_rPZfw6dD
+            folder: 1EtgwgQ4fHZzvz1A4VFndEiQYOG96tInL
 
     runs-on: ubuntu-latest
 
@@ -50,33 +50,36 @@ jobs:
           sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
+      # ===== FIND LATEST =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
           set -e
-      
           FOLDER_ID="${{ matrix.folder }}"
-      
-          export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
-          export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
-          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
-          export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
-      
-          rclone lsf source_rom:/ \
-            --files-only \
-            --format "tp" \
-            > files.txt
-      
-          FILE_NAME=$(sort files.txt | tail -n1)
-      
-          if [ -z "$FILE_NAME" ]; then
+
+          echo "========================="
+          echo "Processing ${{ matrix.name }}"
+          echo "========================="
+
+          timeout 20s gdown --folder \
+          "https://drive.google.com/drive/folders/$FOLDER_ID" \
+          > gdown_log.txt || true
+
+          grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
+
+          if [ ! -s files_list.txt ]; then
             echo "No ROM found"
             exit 1
           fi
-      
+
+          LATEST_LINE=$(tail -n 1 files_list.txt)
+          FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
+          FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
+
           echo "Latest: $FILE_NAME"
-      
+
           echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
+          echo "id=$FILE_ID" >> $GITHUB_OUTPUT
 
       # ===== CHECK STATE =====
       - name: Check Uploaded State
@@ -105,27 +108,28 @@ jobs:
             echo "New ROM"
           fi
 
+      # ===== DOWNLOAD =====
       - name: Download ROM
         if: steps.check.outputs.skip != 'true'
         run: |
           FILE_NAME="${{ steps.gdrive.outputs.file }}"
           FOLDER_ID="${{ matrix.folder }}"
-      
+
           export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
           export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
           export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
-      
+
           rclone copy source_rom:/ . \
             --include "$FILE_NAME" \
             --drive-acknowledge-abuse \
             --progress
-      
-            # ===== VERIFY =====
-            - name: Verify Downloaded File
-              if: steps.check.outputs.skip != 'true'
-              run: |
-                ls -lh "${{ steps.gdrive.outputs.file }}"
+
+      # ===== VERIFY =====
+      - name: Verify Downloaded File
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          ls -lh "${{ steps.gdrive.outputs.file }}"
 
       # ===== UPLOAD =====
       - name: Upload to Pixeldrain
