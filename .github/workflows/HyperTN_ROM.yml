@@ -1,4 +1,4 @@
-name: HyperTN ROM Downloader
+name: Google Drive ROM Downloader
 
 on:
   workflow_dispatch:
@@ -14,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Myron
+          - name: MyronTN
             folder: 1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m
 
-          - name: Socrates
+          - name: SocratesTN
             folder: 1NloAevz_eLBLBsWlGuCYageoTia3MfSm
 
     runs-on: ubuntu-latest
