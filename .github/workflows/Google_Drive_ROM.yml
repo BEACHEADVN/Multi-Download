@@ -17,13 +17,13 @@ jobs:
           - name: MyronTN
             folder: 1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m
           - name: MyronHyperUR
-            folder: xa322vIBdQu-7eNP_f1i-wM-5RQM1kqa
+            folder: 1ETXIK5W2zA4OHyJdIA9us7AZVULZeQxP
 
           - name: SocratesTN
             folder: 1NloAevz_eLBLBsWlGuCYageoTia3MfSm
           - name: SocratesHyperUR
-            folder: 1EtgwgQ4fHZzvz1A4VFndEiQYOG96tInL
-
+            folder: 15EWCyEYYWcNEAovxdAljMg2_rPZfw6dD
+            
     runs-on: ubuntu-latest
 
     steps:
@@ -50,37 +50,36 @@ jobs:
           sudo -v
           curl https://rclone.org/install.sh | sudo bash
 
-      # ===== FIND LATEST =====
       - name: Parse Folder and Find Latest
         id: gdrive
         run: |
           set -e
+
           FOLDER_ID="${{ matrix.folder }}"
 
-          echo "========================="
-          echo "Processing ${{ matrix.name }}"
-          echo "========================="
+          export RCLONE_CONFIG_SOURCE_ROM_TYPE="drive"
+          export RCLONE_CONFIG_SOURCE_ROM_SCOPE="drive"
+          export RCLONE_CONFIG_SOURCE_ROM_TOKEN='{"access_token":"","token_type":"Bearer","refresh_token":"1//0gxkAzf3McJ0dCgYIARAAGBASNwF-L9IrTNIJoOImEdRjySNs2c9AdTZu_jAsfFwGMSwCmNTJr9I0a4oMhziH0CnMnQtfAoQoB4s","expiry":"2000-01-01T00:00:00Z"}'
+          export RCLONE_CONFIG_SOURCE_ROM_ROOT_FOLDER_ID="$FOLDER_ID"
 
-          timeout 20s gdown --folder \
-          "https://drive.google.com/drive/folders/$FOLDER_ID" \
-          > gdown_log.txt || true
+          rclone lsf source_rom:/ \
+            --files-only \
+            --format "tp" \
+            > files.txt
 
-          grep "Processing file" gdown_log.txt | grep "\.7z" > files_list.txt || true
+          LATEST=$(sort files.txt | tail -n1)
 
-          if [ ! -s files_list.txt ]; then
+          FILE_NAME=$(echo "$LATEST" | cut -d';' -f2-)
+
+          if [ -z "$FILE_NAME" ]; then
             echo "No ROM found"
             exit 1
           fi
 
-          LATEST_LINE=$(tail -n 1 files_list.txt)
-          FILE_ID=$(echo "$LATEST_LINE" | awk '{print $3}')
-          FILE_NAME=$(echo "$LATEST_LINE" | cut -d' ' -f4-)
-
           echo "Latest: $FILE_NAME"
 
           echo "file=$FILE_NAME" >> $GITHUB_OUTPUT
-          echo "id=$FILE_ID" >> $GITHUB_OUTPUT
-
+          
       # ===== CHECK STATE =====
       - name: Check Uploaded State
         id: check
@@ -108,7 +107,6 @@ jobs:
             echo "New ROM"
           fi
 
-      # ===== DOWNLOAD =====
       - name: Download ROM
         if: steps.check.outputs.skip != 'true'
         run: |
@@ -125,7 +123,6 @@ jobs:
             --drive-acknowledge-abuse \
             --progress
 
-      # ===== VERIFY =====
       - name: Verify Downloaded File
         if: steps.check.outputs.skip != 'true'
         run: |
