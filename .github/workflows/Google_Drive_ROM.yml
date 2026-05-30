@@ -125,28 +125,56 @@ jobs:
         run: |
           ls -lh "${{ steps.gdrive.outputs.file }}"
 
+      - name: Install 7zip
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full
+
+      - name: Split Large File
+        id: split
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          FILE="${{ steps.gdrive.outputs.file }}"
+      
+          SIZE=$(stat -c%s "$FILE")
+          LIMIT=$((9 * 1024 * 1024 * 1024))
+      
+          if [ "$SIZE" -gt "$LIMIT" ]; then
+            echo "File > 9GB, splitting..."
+      
+            7z a -t7z -mx=0 -v9g "${FILE}.7z" "$FILE"
+      
+            echo "split=true" >> $GITHUB_OUTPUT
+          else
+            echo "split=false" >> $GITHUB_OUTPUT
+          fi
+
       # ===== UPLOAD =====
       - name: Upload to Pixeldrain
         if: steps.check.outputs.skip != 'true'
-        id: pd
         env:
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
-          FILE="${{ steps.gdrive.outputs.file }}"
-
-          RESPONSE=$(curl -u ":$PD_API_KEY" \
-            -F "file=@${FILE}" \
-            https://pixeldrain.com/api/file)
-
-          ID=$(echo "$RESPONSE" | jq -r '.id')
-
-          if [ "$ID" = "null" ] || [ -z "$ID" ]; then
+          if [ "${{ steps.split.outputs.split }}" = "true" ]; then
+            for PART in *.7z.*; do
+              echo "Uploading $PART"
+      
+              RESPONSE=$(curl -s -u ":$PD_API_KEY" \
+                -F "file=@${PART}" \
+                https://pixeldrain.com/api/file)
+      
+              echo "$RESPONSE"
+            done
+          else
+            FILE="${{ steps.gdrive.outputs.file }}"
+      
+            RESPONSE=$(curl -s -u ":$PD_API_KEY" \
+              -F "file=@${FILE}" \
+              https://pixeldrain.com/api/file)
+      
             echo "$RESPONSE"
-            exit 1
           fi
-
-          echo "id=$ID" >> $GITHUB_OUTPUT
-          echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
 
       # ===== TELEGRAM =====
       - name: Telegram Notify
