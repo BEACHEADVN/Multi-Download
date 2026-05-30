@@ -15,12 +15,12 @@ jobs:
       matrix:
         include:
           - name: MyronTN
-            folder: 1edHAXPoKu0F5rcy5sm3KRkBNsZ1qvyU5
+            folder: 1gJOuHLm6llki5bRYMRqVC0NbFJYDuZ8m
           - name: MyronHyperUR
             folder: 1ETXIK5W2zA4OHyJdIA9us7AZVULZeQxP
 
           - name: SocratesTN
-            folder: 1xx6O3riTljP4r10686cFxfWjLbHukp-p
+            folder: 1NloAevz_eLBLBsWlGuCYageoTia3MfSm
           - name: SocratesHyperUR
             folder: 15EWCyEYYWcNEAovxdAljMg2_rPZfw6dD
 
