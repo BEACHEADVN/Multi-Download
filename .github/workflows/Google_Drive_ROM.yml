@@ -17,12 +17,12 @@ jobs:
           - name: MyronTN
             folder: 1edHAXPoKu0F5rcy5sm3KRkBNsZ1qvyU5
           - name: MyronHyperUR
-            folder: xa322vIBdQu-7eNP_f1i-wM-5RQM1kqa
+            folder: 1ETXIK5W2zA4OHyJdIA9us7AZVULZeQxP
 
           - name: SocratesTN
             folder: 1xx6O3riTljP4r10686cFxfWjLbHukp-p
           - name: SocratesHyperUR
-            folder: 1EtgwgQ4fHZzvz1A4VFndEiQYOG96tInL
+            folder: 15EWCyEYYWcNEAovxdAljMg2_rPZfw6dD
 
     runs-on: ubuntu-latest
 
