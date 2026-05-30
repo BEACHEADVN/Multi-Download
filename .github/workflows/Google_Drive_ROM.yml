@@ -107,7 +107,7 @@ jobs:
             echo "New ROM"
           fi
 
-            - name: Download ROM
+      - name: Download ROM
         if: steps.check.outputs.skip != 'true'
         run: |
           FILE_NAME="${{ steps.gdrive.outputs.file }}"
