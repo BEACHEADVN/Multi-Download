@@ -86,19 +86,36 @@ jobs:
 
           touch "$STATE_FILE"
 
-          if grep -Fq "$FILE|" "$STATE_FILE"; then
-            ID=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 | cut -d'|' -f2)
+          LINE=$(grep -F "$FILE|" "$STATE_FILE" | head -n1 || true)
 
-            RESPONSE=$(curl -s "https://pixeldrain.com/api/file/$ID/info")
-            SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+          if [ -n "$LINE" ]; then
 
-            if [ "$SUCCESS" = "true" ]; then
+            IDS=$(echo "$LINE" | cut -d'|' -f2)
+
+            ALL_OK=true
+
+            IFS=',' read -ra IDLIST <<< "$IDS"
+
+            for ID in "${IDLIST[@]}"; do
+
+              RESPONSE=$(curl -s "https://pixeldrain.com/api/file/$ID/info")
+              SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
+
+              if [ "$SUCCESS" != "true" ]; then
+                ALL_OK=false
+                break
+              fi
+
+            done
+
+            if [ "$ALL_OK" = "true" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
               echo "Already uploaded"
             else
               echo "skip=false" >> $GITHUB_OUTPUT
-              echo "Missing -> reupload"
+              echo "Missing part -> reupload"
             fi
+
           else
             echo "skip=false" >> $GITHUB_OUTPUT
             echo "New ROM"
@@ -150,30 +167,59 @@ jobs:
             echo "split=false" >> $GITHUB_OUTPUT
           fi
 
-      # ===== UPLOAD =====
       - name: Upload to Pixeldrain
         if: steps.check.outputs.skip != 'true'
+        id: pd
         env:
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
+          FILE="${{ steps.gdrive.outputs.file }}"
+
           if [ "${{ steps.split.outputs.split }}" = "true" ]; then
+
+            IDS=""
+
             for PART in *.7z.*; do
+
               echo "Uploading $PART"
-      
+
               RESPONSE=$(curl -s -u ":$PD_API_KEY" \
                 -F "file=@${PART}" \
                 https://pixeldrain.com/api/file)
-      
-              echo "$RESPONSE"
+
+              ID=$(echo "$RESPONSE" | jq -r '.id')
+
+              if [ "$ID" = "null" ] || [ -z "$ID" ]; then
+                echo "$RESPONSE"
+                exit 1
+              fi
+
+              if [ -z "$IDS" ]; then
+                IDS="$ID"
+              else
+                IDS="$IDS,$ID"
+              fi
+
             done
+
+            echo "ids=$IDS" >> $GITHUB_OUTPUT
+
           else
-            FILE="${{ steps.gdrive.outputs.file }}"
-      
+
             RESPONSE=$(curl -s -u ":$PD_API_KEY" \
               -F "file=@${FILE}" \
               https://pixeldrain.com/api/file)
-      
-            echo "$RESPONSE"
+
+            ID=$(echo "$RESPONSE" | jq -r '.id')
+
+            if [ "$ID" = "null" ] || [ -z "$ID" ]; then
+              echo "$RESPONSE"
+              exit 1
+            fi
+
+            echo "ids=$ID" >> $GITHUB_OUTPUT
+            echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
+
           fi
 
       # ===== TELEGRAM =====
@@ -201,7 +247,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           FILE="${{ steps.gdrive.outputs.file }}"
-          ID="${{ steps.pd.outputs.id }}"
+          IDS="${{ steps.pd.outputs.ids }}"
 
           for i in {1..10}; do
             git fetch origin main
@@ -209,7 +255,7 @@ jobs:
 
             touch rom_uploaded.txt
             sed -i "\|^$FILE|d" rom_uploaded.txt
-            echo "$FILE|$ID" >> rom_uploaded.txt
+            echo "$FILE|$IDS" >> rom_uploaded.txt
 
             sort -u rom_uploaded.txt -o rom_uploaded.txt
 
