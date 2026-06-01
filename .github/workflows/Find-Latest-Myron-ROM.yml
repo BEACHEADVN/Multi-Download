@@ -42,7 +42,7 @@ jobs:
           device = 'myron'
           region = '${{ env.REGION }}'
           
-          # Sử dụng phiên bản nền OS3.x phù hợp với thiết bị mới để tránh lỗi 404
+          # Sử dụng phiên bản gốc ban đầu của thiết bị để làm mốc check update
           if region == 'EEA':
               version = 'OS3.0.1.0.WPMEUXM'
           elif region == 'CN':
@@ -64,8 +64,12 @@ jobs:
           print(f'==> System: Requesting update for {device} ({region}) from base {version}...')
           
           try:
-              headers = {'User-Agent': 'MiuiUpdater-App'}
-              response = requests.post(url, data=payload, headers=headers, timeout=15)
+              headers = {
+                  'User-Agent': 'MiuiUpdater-App',
+                  'Content-Type': 'application/json'
+              }
+              # Chuyển payload từ 'data=' sang 'params=' để ép tham số lên URL, tránh lỗi 'No input file specified'
+              response = requests.get(url, params=payload, headers=headers, timeout=15)
               
               if response.status_code == 200:
                   data = response.json()
