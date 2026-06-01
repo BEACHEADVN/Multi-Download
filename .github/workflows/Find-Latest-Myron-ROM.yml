@@ -1,15 +1,15 @@
 name: Find Latest Myron ROM
 
 on:
-  # Cho phép kích hoạt chạy bằng tay từ giao diện GitHub Action
+  # Cho phép kích hoạt chạy bằng tay từ giao diện GitHub Actions
   workflow_dispatch:
     inputs:
       region:
-        description: 'Chọn phân vùng ROM (CN, GL, EEA, IN, RU)'
+        description: 'Chọn phân vùng ROM (CN, GL, EEA, IN)'
         required: true
         default: 'EEA'
 
-  # Cấu hình chạy tự động định kỳ (Ví dụ: 6 tiếng check 1 lần)
+  # Cấu hình chạy tự động định kỳ (Mặc định: 6 tiếng check 1 lần)
   schedule:
     - cron: '0 */6 * * *'
 
@@ -29,44 +29,46 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # Cài đặt thư viện ubi-reader và các tool hỗ trợ nếu cần, hoặc gọi trực tiếp API qua requests
           pip install requests
 
       - name: Fetch Latest ROM Link
         env:
-          # Lấy region từ input thủ công, nếu chạy tự động (schedule) thì mặc định là EEA
           REGION: ${{ github.event.inputs.region || 'EEA' }}
         run: |
           python -c "
           import requests
           import json
 
-          # Cấu hình thông tin thiết bị
           device = 'myron'
           region = '${{ env.REGION }}'
           
-          # Giả lập một phiên bản rất cũ để ép Server Xiaomi phải nhả bản mới nhất
-          # Phân biệt mã phiên bản dựa theo Region
-          version = 'OS1.0.1.0.WPMEUXM' if region == 'EEA' else 'OS1.0.1.0.WPMCNXM'
+          # Sử dụng phiên bản nền OS3.x phù hợp với thiết bị mới để tránh lỗi 404
+          if region == 'EEA':
+              version = 'OS3.0.1.0.WPMEUXM'
+          elif region == 'CN':
+              version = 'OS3.0.1.0.WPMCNXM'
+          else:
+              version = 'OS3.0.1.0.WPMMIXM'
           
           url = 'https://update.miui.com/updates/v1/fullrom.php'
           
           payload = {
               'd': device,
               'v': version,
-              'b': 'F',  # F đại diện cho việc check bản Recovery/Fastboot full
+              'b': 'F',
               'r': region,
-              'l': 'en_US'
+              'l': 'en_US',
+              'n': 'NONE'
           }
           
-          print(f'==> System: Checking updates for {device} ({region})...')
+          print(f'==> System: Requesting update for {device} ({region}) from base {version}...')
           
           try:
-              response = requests.post(url, data=payload, timeout=15)
+              headers = {'User-Agent': 'MiuiUpdater-App'}
+              response = requests.post(url, data=payload, headers=headers, timeout=15)
+              
               if response.status_code == 200:
                   data = response.json()
-                  
-                  # Kiểm tra xem server có trả về thông tin bản mới không
                   if 'CurrentRom' in data:
                       rom_info = data['CurrentRom']
                       print('\n==================================================')
@@ -78,10 +80,11 @@ jobs:
                       print(f'Download Link: {rom_info.get(\"Link\", \"N/A\")}')
                       print('==================================================\n')
                   else:
-                      print(' No new update found or invalid payload data.')
-                      print('Response:', json.dumps(data, indent=2))
+                      print('\n No new update found. Your base version might be the latest or server returned empty.')
+                      print('Response Data:', json.dumps(data, indent=2))
               else:
                   print(f'❌ Error: Server returned status code {response.status_code}')
+                  print('Response Text:', response.text)
           except Exception as e:
               print(f'❌ Request failed: {str(e)}')
           "
