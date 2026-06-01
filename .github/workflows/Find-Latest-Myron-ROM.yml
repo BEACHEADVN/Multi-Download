@@ -1,0 +1,87 @@
+name: Find Latest Myron ROM
+
+on:
+  # Cho phép kích hoạt chạy bằng tay từ giao diện GitHub Action
+  workflow_dispatch:
+    inputs:
+      region:
+        description: 'Chọn phân vùng ROM (CN, GL, EEA, IN, RU)'
+        required: true
+        default: 'EEA'
+
+  # Cấu hình chạy tự động định kỳ (Ví dụ: 6 tiếng check 1 lần)
+  schedule:
+    - cron: '0 */6 * * *'
+
+jobs:
+  check-update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Cài đặt thư viện ubi-reader và các tool hỗ trợ nếu cần, hoặc gọi trực tiếp API qua requests
+          pip install requests
+
+      - name: Fetch Latest ROM Link
+        env:
+          # Lấy region từ input thủ công, nếu chạy tự động (schedule) thì mặc định là EEA
+          REGION: ${{ github.event.inputs.region || 'EEA' }}
+        run: |
+          python -c "
+          import requests
+          import json
+
+          # Cấu hình thông tin thiết bị
+          device = 'myron'
+          region = '${{ env.REGION }}'
+          
+          # Giả lập một phiên bản rất cũ để ép Server Xiaomi phải nhả bản mới nhất
+          # Phân biệt mã phiên bản dựa theo Region
+          version = 'OS1.0.1.0.WPMEUXM' if region == 'EEA' else 'OS1.0.1.0.WPMCNXM'
+          
+          url = 'https://update.miui.com/updates/v1/fullrom.php'
+          
+          payload = {
+              'd': device,
+              'v': version,
+              'b': 'F',  # F đại diện cho việc check bản Recovery/Fastboot full
+              'r': region,
+              'l': 'en_US'
+          }
+          
+          print(f'==> System: Checking updates for {device} ({region})...')
+          
+          try:
+              response = requests.post(url, data=payload, timeout=15)
+              if response.status_code == 200:
+                  data = response.json()
+                  
+                  # Kiểm tra xem server có trả về thông tin bản mới không
+                  if 'CurrentRom' in data:
+                      rom_info = data['CurrentRom']
+                      print('\n==================================================')
+                      print(f' FOUND LATEST ROM FOR {device.upper()}')
+                      print('==================================================')
+                      print(f'Version: {rom_info.get(\"Version\", \"N/A\")}')
+                      print(f'Filename: {rom_info.get(\"Filename\", \"N/A\")}')
+                      print(f'MD5: {rom_info.get(\"MD5\", \"N/A\")}')
+                      print(f'Download Link: {rom_info.get(\"Link\", \"N/A\")}')
+                      print('==================================================\n')
+                  else:
+                      print(' No new update found or invalid payload data.')
+                      print('Response:', json.dumps(data, indent=2))
+              else:
+                  print(f'❌ Error: Server returned status code {response.status_code}')
+          except Exception as e:
+              print(f'❌ Request failed: {str(e)}')
+          "
