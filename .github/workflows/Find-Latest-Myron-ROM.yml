@@ -23,6 +23,9 @@ jobs:
           TARGET_URL="https://miuirom.org/phones/redmi-k90-pro-max"
           USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
           
+          # ĐÃ SỬA: Chuyển tên phân vùng sang chữ in hoa an toàn bằng lệnh Bash
+          REGION_UPPER=$(echo "${{ env.CHOSEN_REGION }}" | tr '[:lower:]' '[:upper:]')
+          
           echo "==> Bước 1: Tải giao diện trang chủ thiết bị..."
           curl -s -L -H "User-Agent: $USER_AGENT" "$TARGET_URL" > main.html
 
@@ -39,7 +42,7 @@ jobs:
               REG_KEY="MI" # Bản Global
           fi
 
-          echo "==> Bước 2: Tìm mã build tương ứng với phân vùng: ${{ env.CHOSEN_REGION^^ }} ($REG_KEY)..."
+          echo "==> Bước 2: Tìm mã build tương ứng với phân vùng: $REGION_UPPER ($REG_KEY)..."
           
           # Lọc ra tất cả các đường link trang con chứa từ khóa /load/ hoặc /roms/ trên miuirom.org
           # Kết hợp với việc tìm mã ROM (Ví dụ: WPMCNXM)
@@ -61,7 +64,7 @@ jobs:
           FINAL_DOWNLOAD_LINKS=$(grep -oE 'https://[a-zA-Z0-9./_-]+\.(zip|tgz)' download_page.html | sort -u)
 
           echo "=================================================="
-          echo " RESULT FOR YOUR SELECTION: ${{ env.CHOSEN_REGION^^ }}"
+          echo " RESULT FOR YOUR SELECTION: $REGION_UPPER"
           echo "=================================================="
           if [ -z "$FINAL_DOWNLOAD_LINKS" ]; then
               echo "❌ Không tìm thấy link trực tiếp .zip/.tgz nào trong trang con."
