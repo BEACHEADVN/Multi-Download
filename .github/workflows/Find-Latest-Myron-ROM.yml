@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       region:
-        description: 'Chọn phân vùng ROM (CN, GL, EEA)'
+        description: 'Chọn phân vùng ROM (China, Europe, Global, India)'
         required: true
-        default: 'EEA'
+        default: 'Europe'
 
   # Cấu hình chạy tự động định kỳ (Mặc định: 6 tiếng check 1 lần)
   schedule:
@@ -21,62 +21,55 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Fetch Latest ROM Link via cURL
+      - name: Fetch Latest ROM Link via Community API
         env:
-          REGION: ${{ github.event.inputs.region || 'EEA' }}
+          REGION_INPUT: ${{ github.event.inputs.region || 'Europe' }}
         run: |
           DEVICE="myron"
           
-          # Thiết lập phiên bản Base chuẩn xác
-          if [ "${{ env.REGION }}" = "EEA" ]; then
-              VERSION="OS3.0.301.0.WPMEUXM"
-          elif [ "${{ env.REGION }}" = "CN" ]; then
-              VERSION="OS3.0.301.0.WPMCNXM"
+          # Chuẩn hóa tên phân vùng theo chuẩn dữ liệu của API Quốc tế
+          if [ "$REGION_INPUT" = "EEA" ] || [ "$REGION_INPUT" = "Europe" ]; then
+              REGION="Europe"
+          elif [ "$REGION_INPUT" = "CN" ] || [ "$REGION_INPUT" = "China" ]; then
+              REGION="China"
+          elif [ "$REGION_INPUT" = "GL" ] || [ "$REGION_INPUT" = "Global" ]; then
+              REGION="Global"
           else
-              VERSION="OS3.0.301.0.WPMMIXM"
+              REGION="$REGION_INPUT"
           fi
 
-          echo "==> System: Requesting update for $DEVICE (${{ env.REGION }}) using base $VERSION..."
+          echo "==> System: Fetching latest stable ROM for $DEVICE ($REGION) from community tracker..."
           
-          # Thực hiện gửi request giả lập bằng cURL với đầy đủ các Header chuẩn của Xiaomi Updater
-          RESPONSE=$(curl -s -X POST "https://update.miui.com/updates/v2/getrominfo.php" \
-            -H "User-Agent: MiuiUpdater-App" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            --data-urlencode "d=$DEVICE" \
-            --data-urlencode "v=$VERSION" \
-            --data-urlencode "b=F" \
-            --data-urlencode "r=${{ env.REGION }}" \
-            --data-urlencode "l=en_US" \
-            --data-urlencode "n=NONE")
+          # Gọi trực tiếp vào API công khai của Xiaomi Firmware Updater chuyên cho thiết bị cụ thể
+          RESPONSE=$(curl -s "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/stable_recovery.json")
 
-          # Kiểm tra nếu phản hồi trống hoặc bị lỗi hệ thống
-          if [ -z "$RESPONSE" ] || echo "$RESPONSE" | grep -q "No input file specified" || echo "$RESPONSE" | grep -q "404"; then
-              echo "❌ Error: Server Xiaomi vẫn từ chối phương thức kết nối hoặc chặn IP của GitHub."
-              echo "Phản hồi từ Server: $RESPONSE"
+          if [ -z "$RESPONSE" ]; then
+              echo "❌ Error: Không thể kết nối tới cơ sở dữ liệu Tracker."
               exit 1
           fi
 
-          # Phân tích cú pháp JSON trả về
+          # Dùng jq để lọc bản dựng mới nhất khớp với codename và phân vùng
+          DATA_FILTERED=$(echo "$RESPONSE" | jq --arg dev "$DEVICE" --arg reg "$REGION" '.[] | select(.codename == $dev and .region == $reg)')
+
           echo "=================================================="
-          echo " SERVER RESPONDED SUCCESSFULLY"
+          echo " TRACKER RESPONDED SUCCESSFULLY"
           echo "=================================================="
-          
-          # Kiểm tra xem có chứa trường thông tin bản ROM mới không
-          if echo "$RESPONSE" | jq -e '.CurrentRom' >/dev/null 2>&1; then
-              VERSION_NEW=$(echo "$RESPONSE" | jq -r '.CurrentRom.Version')
-              FILENAME=$(echo "$RESPONSE" | jq -r '.CurrentRom.Filename')
-              MD5=$(echo "$RESPONSE" | jq -r '.CurrentRom.MD5')
-              LINK=$(echo "$RESPONSE" | jq -r '.CurrentRom.Link')
-              
-              echo " FOUND LATEST ROM FOR ${DEVICE^^}"
-              echo "--------------------------------------------------"
-              echo "Version: $VERSION_NEW"
-              echo "Filename: $FILENAME"
-              echo "MD5: $MD5"
-              echo "Download Link: $LINK"
+
+          if [ -z "$DATA_FILTERED" ]; then
+              echo " [Thông báo] Không tìm thấy dữ liệu ROM khớp với thiết bị $DEVICE ở phân vùng $REGION."
+              echo " Có thể bản ROM này quá mới và đang được hệ thống cập nhật vào database."
           else
-              echo " [Mới Nhất] Không tìm thấy bản cập nhật nào mới hơn."
-              echo "Chi tiết phản hồi hệ thống:"
-              echo "$RESPONSE" | jq .
+              # Lấy thông tin bản ghi mới nhất (dòng đầu tiên)
+              VERSION=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .version')
+              FILENAME=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .filename')
+              LINK=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .download')
+              android_version=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .android')
+
+              echo " FOUND LATEST STABLE ROM FOR ${DEVICE^^}"
+              echo "--------------------------------------------------"
+              echo "Version:         $VERSION"
+              echo "Android Version: $android_version"
+              echo "Filename:        $FILENAME"
+              echo "Download Link:   $LINK"
           fi
           echo "=================================================="
