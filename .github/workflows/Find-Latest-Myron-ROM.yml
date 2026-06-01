@@ -1,59 +1,74 @@
-name: Scrape MiuiRom Org List
+name: Get China ROM Download Link
 
 on:
   workflow_dispatch:
-
-  schedule:
-    - cron: '0 */6 * * *'
+    inputs:
+      region:
+        description: 'Chọn phân vùng muốn lấy link tải (china, eea, global, taiwan, indonesia)'
+        required: true
+        default: 'china'
 
 jobs:
-  scrape-firmware:
+  get-link:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Scrape Page Data
+      - name: Scrape and Click Link
+        env:
+          CHOSEN_REGION: ${{ github.event.inputs.region || 'china' }}
         run: |
           TARGET_URL="https://miuirom.org/phones/redmi-k90-pro-max"
-          echo "==> System: Connecting to $TARGET_URL..."
+          USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
           
-          # 1. Tải mã nguồn HTML về file tạm
-          curl -s -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "$TARGET_URL" > source.html
+          echo "==> Bước 1: Tải giao diện trang chủ thiết bị..."
+          curl -s -L -H "User-Agent: $USER_AGENT" "$TARGET_URL" > main.html
+
+          # Xác định từ khóa ký tự của phân vùng dựa trên lựa chọn của bạn
+          if [ "${{ env.CHOSEN_REGION }}" = "china" ]; then
+              REG_KEY="CN"
+          elif [ "${{ env.CHOSEN_REGION }}" = "eea" ] || [ "${{ env.CHOSEN_REGION }}" = "europe" ]; then
+              REG_KEY="EU"
+          elif [ "${{ env.CHOSEN_REGION }}" = "taiwan" ]; then
+              REG_KEY="TW"
+          elif [ "${{ env.CHOSEN_REGION }}" = "indonesia" ]; then
+              REG_KEY="ID"
+          else
+              REG_KEY="MI" # Bản Global
+          fi
+
+          echo "==> Bước 2: Tìm mã build tương ứng với phân vùng: ${{ env.CHOSEN_REGION^^ }} ($REG_KEY)..."
           
-          if [ ! -s source.html ]; then
-              echo "❌ Error: Không tải được dữ liệu từ miuirom.org"
+          # Lọc ra tất cả các đường link trang con chứa từ khóa /load/ hoặc /roms/ trên miuirom.org
+          # Kết hợp với việc tìm mã ROM (Ví dụ: WPMCNXM)
+          SUB_PATH=$(grep -oE '/[a-zA-Z0-9./_-]+' main.html | grep -E "load|roms" | grep "$REG_KEY" | head -n 1)
+
+          if [ -z "$SUB_PATH" ]; then
+              echo "❌ Thất bại: Không tìm thấy đường dẫn trang tải xuống cho phân vùng này trên giao diện."
+              echo "Kiểm tra lại xem trang web có chặn hoặc đổi cấu trúc href không."
               exit 1
           fi
 
-          echo "=================================================="
-          echo " LATEST FIRMWARE UPDATES (MIUIROM.ORG)"
-          echo "=================================================="
+          DOWNLOAD_PAGE_URL="https://miuirom.org$SUB_PATH"
+          echo "🔗 Đã tìm thấy trang tải con (Tương đương việc bấm Click): $DOWNLOAD_PAGE_URL"
 
-          # 2. Bóc tách toàn bộ các chuỗi mã build ROM xuất hiện trong trang (Ví dụ: 3.0.13.0.WPMMIXM)
-          # Định dạng: Số.Số.Số.Số.KýTựViếtHoa
-          MAP_VERSIONS=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.[A-Z]+' source.html)
+          echo "==> Bước 3: Truy cập vào trang tải con để bóc link CDN của Xiaomi..."
+          curl -s -L -H "User-Agent: $USER_AGENT" "$DOWNLOAD_PAGE_URL" > download_page.html
 
-          if [ -z "$MAP_VERSIONS" ]; then
-              echo "❌ Không tìm thấy chuỗi mã phiên bản nào trên trang."
-              echo "Có thể cấu trúc HTML đã thay đổi. Log thử 50 dòng chứa chữ WP để check:"
-              grep -i "WPM" source.html | head -n 50
-              exit 0
+          # Quét tìm link chứa đuôi .zip (Recovery) hoặc .tgz (Fastboot) trực tiếp từ server gốc
+          FINAL_DOWNLOAD_LINKS=$(grep -oE 'https://[a-zA-Z0-9./_-]+\.(zip|tgz)' download_page.html | sort -u)
+
+          echo "=================================================="
+          echo " RESULT FOR YOUR SELECTION: ${{ env.CHOSEN_REGION^^ }}"
+          echo "=================================================="
+          if [ -z "$FINAL_DOWNLOAD_LINKS" ]; then
+              echo "❌ Không tìm thấy link trực tiếp .zip/.tgz nào trong trang con."
+              echo "Có thể bản ROM này mới hiển thị tên phiên bản chứ chưa được miuirom.org gắn link tải."
+          else
+              echo "Tìm thấy các link tải chính thức dưới đây:"
+              echo "--------------------------------------------------"
+              echo "$FINAL_DOWNLOAD_LINKS"
           fi
-
-          # 3. Đọc từng dòng phiên bản tìm được và gán tương ứng theo thứ tự hiển thị trong ảnh
-          echo "$MAP_VERSIONS" | {
-              read -r GLOBAL_VER
-              read -r EUROPE_VER
-              read -r CHINA_VER
-              read -r INDONESIA_VER
-              read -r TAIWAN_VER
-
-              printf "📍 %-12s : HyperOS %s\n" "Global" "${GLOBAL_VER:-N/A}"
-              printf "📍 %-12s : HyperOS %s\n" "Europe" "${EUROPE_VER:-N/A}"
-              printf "📍 %-12s : HyperOS %s\n" "China" "${CHINA_VER:-N/A}"
-              printf "📍 %-12s : HyperOS %s\n" "Indonesia" "${INDONESIA_VER:-N/A}"
-              printf "📍 %-12s : HyperOS %s\n" "Taiwan" "${TAIWAN_VER:-N/A}"
-          }
           echo "=================================================="
