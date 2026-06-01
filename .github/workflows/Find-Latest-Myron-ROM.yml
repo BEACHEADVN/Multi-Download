@@ -1,73 +1,54 @@
-name: Test Scrape MiuiRom Org Keywords
+name: Scrape MiuiRom Org List
 
 on:
-  # Kích hoạt chạy bằng tay từ giao diện GitHub Actions
   workflow_dispatch:
 
-  # Chạy tự động định kỳ nếu cần
   schedule:
-    - cron: '0 */12 * * *'
+    - cron: '0 */6 * * *'
 
 jobs:
-  test-keywords:
+  scrape-firmware:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Fetch Page and Inspect Keywords
+      - name: Scrape Page Data
         run: |
           TARGET_URL="https://miuirom.org/phones/redmi-k90-pro-max"
-          echo "==> System: Connecting to $TARGET_URL to test keywords..."
+          echo "==> System: Connecting to $TARGET_URL..."
           
-          # Tải mã nguồn HTML và lưu tạm vào một file text
-          curl -s -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "$TARGET_URL" > page.html
+          # 1. Tải mã nguồn HTML về file tạm
+          curl -s -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "$TARGET_URL" > source.html
           
-          # Kiểm tra nếu file tải về bị rỗng
-          if [ ! -s page.html ]; then
-              echo "❌ Error: Không tải được dữ liệu từ trang web."
+          if [ ! -s source.html ]; then
+              echo "❌ Error: Không tải được dữ liệu từ miuirom.org"
               exit 1
           fi
 
           echo "=================================================="
-          echo " KIỂM TRA TỪ KHÓA TRÊN TRANG MIUIROM.ORG"
+          echo " LATEST FIRMWARE UPDATES (MIUIROM.ORG)"
           echo "=================================================="
-          
-          echo "--- 1. Kiểm tra từ khóa 'China' ---"
-          # -i: không phân biệt chữ hoa thường, -m 10: lấy tối đa 10 dòng đầu tiên tìm thấy
-          if grep -iq "china" page.html; then
-              echo "✅ Tìm thấy từ khóa 'China'. Dưới đây là các dòng chứa từ khóa:"
-              grep -i -n "china" page.html | head -n 10
-          else
-              echo "❌ Không tìm thấy từ khóa 'China' trong mã nguồn HTML."
-          fi
 
-          echo -e "\n--- 2. Kiểm tra từ khóa 'Europe' hoặc 'EEA' ---"
-          if grep -iqE "europe|eea" page.html; then
-              echo "✅ Tìm thấy từ khóa liên quan đến Châu Âu. Dưới đây là các dòng chứa từ khóa:"
-              grep -i -nE "europe|eea" page.html | head -n 10
-          else
-              echo "❌ Không tìm thấy từ khóa 'Europe' hay 'EEA'."
-          fi
+          # 2. Định nghĩa danh sách phân vùng cần bóc tách dựa theo giao diện ảnh chụp
+          REGIONS=("Global" "Europe" "China" "Indonesia" "Taiwan")
 
-          echo -e "\n--- 3. Kiểm tra từ khóa 'Global' ---"
-          if grep -iq "global" page.html; then
-              echo "✅ Tìm thấy từ khóa 'Global'. Dưới đây là các dòng chứa từ khóa:"
-              grep -i -n "global" page.html | head -n 10
-          else
-              echo "❌ Không tìm thấy từ khóa 'Global'."
-          fi
-
-          echo "=================================================="
-          echo " KIỂM TRA CẤU TRÚC BẢNG (TABLE) CHỨA ROM"
-          echo "=================================================="
-          # Quét xem trang web có sử dụng các thẻ bảng dữ liệu tiêu chuẩn không
-          if grep -q "<table" page.html; then
-              echo " Tổng số bảng dữ liệu (Table) xuất hiện trên trang: $(grep -c "<table" page.html)"
-              echo " Ví dụ cấu trúc tiêu đề bảng:"
-              grep -n "<thead" page.html -A 3 | head -n 15
-          else
-              echo " Trực quan: Trang web này không dùng thẻ <table> thông thường để chia block, có thể họ dùng thẻ <div>."
-          fi
+          for REGION in "${REGIONS[@]}"; do
+              # Tìm dòng chứa tên phân vùng và lấy thêm 5 dòng tiếp theo (chứa mã OS)
+              REGION_BLOCK=$(grep -i -A 5 ">$REGION<" source.html || grep -i -A 5 "$REGION" source.html)
+              
+              if [ -n "$REGION_BLOCK" ]; then
+                  # Dùng regex lọc ra chuỗi phiên bản dạng OS3.0.X.X.WPMXXXX
+                  VERSION=$(echo "$REGION_BLOCK" | grep -oE 'OS[0-9.]+\.[0-9A-Z]+' | head -n 1)
+                  
+                  if [ -n "$VERSION" ]; then
+                      printf "📍 %-12s : %s\n" "$REGION" "$VERSION"
+                  else
+                      printf "📍 %-12s : Tìm thấy phân vùng nhưng chưa bóc tách được mã version\n" "$REGION"
+                  fi
+              else
+                  printf "📍 %-12s : Không tìm thấy block dữ liệu trên trang\n" "$REGION"
+              fi
+          done
           echo "=================================================="
