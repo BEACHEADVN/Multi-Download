@@ -27,7 +27,7 @@ jobs:
         run: |
           DEVICE="myron"
           
-          # Chuẩn hóa tên phân vùng theo chuẩn dữ liệu của API Quốc tế
+          # Chuẩn hóa tên phân vùng theo chuẩn dữ liệu của Tracker quốc tế
           if [ "$REGION_INPUT" = "EEA" ] || [ "$REGION_INPUT" = "Europe" ]; then
               REGION="Europe"
           elif [ "$REGION_INPUT" = "CN" ] || [ "$REGION_INPUT" = "China" ]; then
@@ -38,37 +38,41 @@ jobs:
               REGION="$REGION_INPUT"
           fi
 
-          echo "==> System: Fetching latest stable ROM for $DEVICE ($REGION) from community tracker..."
+          echo "==> System: Fetching latest stable ROM for $DEVICE ($REGION) from device specific tracker..."
           
-          # Gọi trực tiếp vào API công khai của Xiaomi Firmware Updater chuyên cho thiết bị cụ thể
-          RESPONSE=$(curl -s "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/stable_recovery.json")
+          # Tải trực tiếp file dữ liệu JSON được tách riêng cho dòng máy myron để tránh lỗi parse lỗi file tổng
+          URL_API="https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/${DEVICE}.json"
+          RESPONSE=$(curl -s "$URL_API")
 
-          if [ -z "$RESPONSE" ]; then
-              echo "❌ Error: Không thể kết nối tới cơ sở dữ liệu Tracker."
-              exit 1
+          # Kiểm tra nếu file thiết bị chưa tồn tại trên repo (Ví dụ do máy quá mới chưa được nạp dữ liệu riêng)
+          if [ -z "$RESPONSE" ] || echo "$RESPONSE" | grep -q "404: Not Found"; then
+              echo "⚠️ Warning: Không tìm thấy cơ sở dữ liệu riêng của $DEVICE. Đang thử chuyển hướng về kho tổng..."
+              RESPONSE=$(curl -s "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/stable_recovery.json")
+              # Ép kiểu dữ liệu an toàn để jq không bị crash
+              DATA_FILTERED=$(echo "$RESPONSE" | jq -r --arg reg "$REGION" '.[] | select(.region == $reg)')
+          else
+              # Lọc dữ liệu theo phân vùng từ file JSON riêng của myron
+              DATA_FILTERED=$(echo "$RESPONSE" | jq -r --arg reg "$REGION" '.[] | select(.region == $reg)')
           fi
-
-          # Dùng jq để lọc bản dựng mới nhất khớp với codename và phân vùng
-          DATA_FILTERED=$(echo "$RESPONSE" | jq --arg dev "$DEVICE" --arg reg "$REGION" '.[] | select(.codename == $dev and .region == $reg)')
 
           echo "=================================================="
           echo " TRACKER RESPONDED SUCCESSFULLY"
           echo "=================================================="
 
-          if [ -z "$DATA_FILTERED" ]; then
-              echo " [Thông báo] Không tìm thấy dữ liệu ROM khớp với thiết bị $DEVICE ở phân vùng $REGION."
-              echo " Có thể bản ROM này quá mới và đang được hệ thống cập nhật vào database."
+          if [ -z "$DATA_FILTERED" ] || [ "$DATA_FILTERED" = "null" ]; then
+              echo " [Thông báo] Hiện chưa có dữ liệu ROM bản Stable cho $DEVICE thuộc phân vùng $REGION."
+              echo " Dòng máy này chạy Android 16 rất mới, hãy kiểm tra lại phân vùng China (CN) xem đã có chưa nhé."
           else
-              # Lấy thông tin bản ghi mới nhất (dòng đầu tiên)
+              # Trích xuất thông tin bản dựng mới nhất dựa trên logic so sánh phiên bản của jq
               VERSION=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .version')
               FILENAME=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .filename')
               LINK=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .download')
-              android_version=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .android')
+              ANDROID_VER=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .android')
 
               echo " FOUND LATEST STABLE ROM FOR ${DEVICE^^}"
               echo "--------------------------------------------------"
               echo "Version:         $VERSION"
-              echo "Android Version: $android_version"
+              echo "Android Version: $ANDROID_VER"
               echo "Filename:        $FILENAME"
               echo "Download Link:   $LINK"
           fi
