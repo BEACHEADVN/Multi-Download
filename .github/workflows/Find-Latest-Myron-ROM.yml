@@ -21,82 +21,62 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
-
-      - name: Fetch Latest ROM Link
+      - name: Fetch Latest ROM Link via cURL
         env:
           REGION: ${{ github.event.inputs.region || 'EEA' }}
         run: |
-          python -c "
-          import requests
-          import json
+          DEVICE="myron"
+          
+          # Thiết lập phiên bản Base chuẩn xác
+          if [ "${{ env.REGION }}" = "EEA" ]; then
+              VERSION="OS3.0.301.0.WPMEUXM"
+          elif [ "${{ env.REGION }}" = "CN" ]; then
+              VERSION="OS3.0.301.0.WPMCNXM"
+          else
+              VERSION="OS3.0.301.0.WPMMIXM"
+          fi
 
-          device = 'myron'
-          region = '${{ env.REGION }}'
+          echo "==> System: Requesting update for $DEVICE (${{ env.REGION }}) using base $VERSION..."
           
-          # Cấu hình đúng mã định danh thiết bị 'PM' bóc tách từ link gốc của bạn
-          if region == 'EEA':
-              version = 'OS3.0.301.0.WPMEUXM'
-          elif region == 'CN':
-              version = 'OS3.0.301.0.WPMCNXM'
-          else:
-              version = 'OS3.0.301.0.WPMMIXM'
+          # Thực hiện gửi request giả lập bằng cURL với đầy đủ các Header chuẩn của Xiaomi Updater
+          RESPONSE=$(curl -s -X POST "https://update.miui.com/updates/v2/getrominfo.php" \
+            -H "User-Agent: MiuiUpdater-App" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "d=$DEVICE" \
+            --data-urlencode "v=$VERSION" \
+            --data-urlencode "b=F" \
+            --data-urlencode "r=${{ env.REGION }}" \
+            --data-urlencode "l=en_US" \
+            --data-urlencode "n=NONE")
+
+          # Kiểm tra nếu phản hồi trống hoặc bị lỗi hệ thống
+          if [ -z "$RESPONSE" ] || echo "$RESPONSE" | grep -q "No input file specified" || echo "$RESPONSE" | grep -q "404"; then
+              echo "❌ Error: Server Xiaomi vẫn từ chối phương thức kết nối hoặc chặn IP của GitHub."
+              echo "Phản hồi từ Server: $RESPONSE"
+              exit 1
+          fi
+
+          # Phân tích cú pháp JSON trả về
+          echo "=================================================="
+          echo " SERVER RESPONDED SUCCESSFULLY"
+          echo "=================================================="
           
-          url = 'https://update.miui.com/updates/v1/fullrom.php'
-          
-          payload = {
-              'd': device,
-              'v': version,
-              'b': 'F',
-              'r': region,
-              'l': 'en_US',
-              'n': 'NONE'
-          }
-          
-          print(f'==> System: Requesting update for {device} ({region}) using valid base {version}...')
-          
-          try:
-              headers = {
-                  'User-Agent': 'MiuiUpdater-App',
-                  'Content-Type': 'application/x-www-form-urlencoded'
-              }
+          # Kiểm tra xem có chứa trường thông tin bản ROM mới không
+          if echo "$RESPONSE" | jq -e '.CurrentRom' >/dev/null 2>&1; then
+              VERSION_NEW=$(echo "$RESPONSE" | jq -r '.CurrentRom.Version')
+              FILENAME=$(echo "$RESPONSE" | jq -r '.CurrentRom.Filename')
+              MD5=$(echo "$RESPONSE" | jq -r '.CurrentRom.MD5')
+              LINK=$(echo "$RESPONSE" | jq -r '.CurrentRom.Link')
               
-              # Dùng POST request truyền data chuẩn
-              response = requests.post(url, data=payload, headers=headers, timeout=15)
-              
-              if response.status_code == 200:
-                  # Đôi khi nếu không có bản mới hơn, server Xiaomi trả về chuỗi văn bản trống hoặc JSON rỗng
-                  if response.text.strip():
-                      try:
-                          data = response.json()
-                          if 'CurrentRom' in data:
-                              rom_info = data['CurrentRom']
-                              print('\n==================================================')
-                              print(f' FOUND LATEST ROM FOR {device.upper()}')
-                              print('==================================================')
-                              print(f'Version: {rom_info.get(\"Version\", \"N/A\")}')
-                              print(f'Filename: {rom_info.get(\"Filename\", \"N/A\")}')
-                              print(f'MD5: {rom_info.get(\"MD5\", \"N/A\")}')
-                              print(f'Download Link: {rom_info.get(\"Link\", \"N/A\")}')
-                              print('==================================================\n')
-                          else:
-                              print('\n [Mới Nhất] Không có bản cập nhật nào mới hơn bản base này.')
-                              print('Response Data:', json.dumps(data, indent=2))
-                      except json.JSONDecodeError:
-                          print('❌ Error: Server returned non-JSON response:', response.text)
-                  else:
-                      print('\n [Mới Nhất] Server trả về rỗng, chứng tỏ bản base của bạn hiện là mới nhất.')
-              else:
-                  print(f'❌ Error: Server returned status code {response.status_code}')
-                  print('Response Text:', response.text)
-          except Exception as e:
-              print(f'❌ Request failed: {str(e)}')
-          "
+              echo " FOUND LATEST ROM FOR ${DEVICE^^}"
+              echo "--------------------------------------------------"
+              echo "Version: $VERSION_NEW"
+              echo "Filename: $FILENAME"
+              echo "MD5: $MD5"
+              echo "Download Link: $LINK"
+          else
+              echo " [Mới Nhất] Không tìm thấy bản cập nhật nào mới hơn."
+              echo "Chi tiết phản hồi hệ thống:"
+              echo "$RESPONSE" | jq .
+          fi
+          echo "=================================================="
