@@ -16,7 +16,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Scrape and Click Link
+      - name: Scrape and Decode Base64 Link
         env:
           CHOSEN_REGION: ${{ github.event.inputs.region || 'china' }}
         run: |
@@ -28,58 +28,61 @@ jobs:
           echo "==> Bước 1: Tải giao diện trang chủ thiết bị..."
           curl -s -L -H "User-Agent: $USER_AGENT" "$TARGET_URL" > main.html
 
-          if [ ! -s main.html ]; then
-              echo "❌ Thất bại: Không thể tải dữ liệu từ miuirom.org"
-              exit 1
-          fi
-
-          # Chuẩn hóa từ khóa tìm kiếm theo đúng chữ hiển thị trên giao diện (In hoa chữ cái đầu)
+          # Định nghĩa mã định danh phân vùng cần tìm trong chuỗi HTML
           if [ "${{ env.CHOSEN_REGION }}" = "china" ]; then
-              SEARCH_WORD="China"
+              REG_KEY="WPMCNXM"
           elif [ "${{ env.CHOSEN_REGION }}" = "eea" ] || [ "${{ env.CHOSEN_REGION }}" = "europe" ]; then
-              SEARCH_WORD="Europe"
+              REG_KEY="WPMEUXM"
           elif [ "${{ env.CHOSEN_REGION }}" = "taiwan" ]; then
-              SEARCH_WORD="Taiwan"
+              REG_KEY="WPMTWXM"
           elif [ "${{ env.CHOSEN_REGION }}" = "indonesia" ]; then
-              SEARCH_WORD="Indonesia"
+              REG_KEY="WPMIDXM"
           else
-              SEARCH_WORD="Global"
+              REG_KEY="WPMMIXM"
           fi
 
-          echo "==> Bước 2: Định vị block chứa từ khóa '$SEARCH_WORD' và trích xuất link con..."
+          echo "==> Bước 2: Tìm và giải mã chuỗi Base64 tương ứng với phân vùng: $REGION_UPPER ($REG_KEY)..."
           
-          # Logic mới: Tìm dòng chứa chữ phân vùng, lấy thêm 10 dòng tiếp theo để quét thẻ <a href="...">
-          # Sau đó trích xuất ra đường dẫn URL con đầu tiên xuất hiện (/load/... hoặc /roms/...)
-          SUB_PATH=$(grep -i -A 10 ">$SEARCH_WORD<" main.html | grep -oE 'href="[^"]+"' | head -n 1 | cut -d'"' -f2)
+          # Quét tìm dòng chứa mã build cụ thể của phân vùng, bốc chuỗi Base64 nằm trong block đó
+          # Chuỗi mã hóa Base64 của miuirom thường bắt đầu bằng 'aHR0cH' (mã hóa của 'http')
+          BASE64_STR=$(grep -A 5 "$REG_KEY" main.html | grep -oE 'aHR0cHM2[a-zA-Z0-9+=]+|aHR0cH[a-zA-Z0-9+=]+' | head -n 1)
 
-          # Nếu tìm theo cấu trúc thẻ đóng không được, thử tìm kiếm chuỗi text trần
-          if [ -z "$SUB_PATH" ]; then
-              SUB_PATH=$(grep -i -A 10 "$SEARCH_WORD" main.html | grep -oE 'href="[^"]+"' | head -n 1 | cut -d'"' -f2)
+          # Nếu không tìm thấy bằng mã ROM, thử quét tìm theo cụm text thường bao quanh
+          if [ -z "$BASE64_STR" ]; then
+              BASE64_STR=$(grep -B 3 -A 10 "href=" main.html | grep "$REG_KEY" | grep -oE 'aHR0cH[a-zA-Z0-9+=]+' | head -n 1)
           fi
 
-          if [ -z "$SUB_PATH" ]; then
-              echo "❌ Thất bại: Vẫn không định vị được thẻ href của phân vùng $SEARCH_WORD."
-              echo "==> DEBUG: In ra 30 dòng xung quanh từ khóa để kiểm tra cấu trúc HTML thực tế:"
-              grep -i -n -C 5 "$SEARCH_WORD" main.html | head -n 30
+          if [ -z "$BASE64_STR" ]; then
+              echo "❌ Thất bại: Không tìm thấy chuỗi mã hóa Base64 cho phân vùng này."
+              echo "==> DEBUG: Lọc thử cấu trúc chứa mã ROM để kiểm tra:"
+              grep -n -C 3 "$REG_KEY" main.html | head -n 20
               exit 1
           fi
 
-          # Loại bỏ dấu gạch chéo thừa nếu có và tạo URL hoàn chỉnh
-          DOWNLOAD_PAGE_URL="https://miuirom.org$(echo "$SUB_PATH" | sed 's|^https://miuirom.org||')"
-          echo "🔗 Giả lập Click thành công! Trang con mục tiêu: $DOWNLOAD_PAGE_URL"
+          # Tiến hành giải mã chuỗi Base64 sang URL thật bằng core-utils của Linux
+          DOWNLOAD_PAGE_URL=$(echo "$BASE64_STR" | base64 -d 2>/dev/null)
+          
+          if [ -z "$DOWNLOAD_PAGE_URL" ] || [[ ! "$DOWNLOAD_PAGE_URL" =~ http ]]; then
+              echo "❌ Thất bại: Chuỗi bốc được không phải Base64 hợp lệ hoặc giải mã sai."
+              echo "Chuỗi thô tìm thấy: $BASE64_STR"
+              exit 1
+          fi
 
-          echo "==> Bước 3: Truy cập trang con để lấy link tải (.zip/.tgz)..."
+          echo "🔗 Giải mã link ẩn thành công! Trang con mục tiêu: $DOWNLOAD_PAGE_URL"
+
+          echo "==> Bước 3: Truy cập vào trang tải con để bóc link gốc từ Xiaomi..."
           curl -s -L -H "User-Agent: $USER_AGENT" "$DOWNLOAD_PAGE_URL" > download_page.html
 
-          # Quét tìm tất cả các link download trực tiếp của Xiaomi (.zip hoặc .tgz)
-          FINAL_DOWNLOAD_LINKS=$(grep -oE 'https://[a-zA-Z0-9./_-]+\.(zip|tgz)' download_page.html | sort -u)
+          # Lọc lấy link download trực tiếp dạng .zip hoặc .tgz
+          FINAL_DOWNLOAD_LINKS=$(grep -oE 'https://[a-zA-Z0-9./_-]+.(zip|tgz)' download_page.html | sort -u)
 
           echo "=================================================="
           echo " RESULT FOR YOUR SELECTION: $REGION_UPPER"
           echo "=================================================="
           if [ -z "$FINAL_DOWNLOAD_LINKS" ]; then
-              echo "⚠️ Chú ý: Đã vào được trang con nhưng không tìm thấy link trực tiếp (.zip/.tgz)."
-              echo "Có thể miuirom.org dùng nút bấm dạng mã hóa JavaScript hoặc phân vùng này chưa có file."
+              echo "⚠️ Chú ý: Đã giải mã vào được trang con, nhưng link trực tiếp đang bị ẩn sau nút bấm."
+              echo "Log thử các URL tìm thấy trong trang con để bạn check:"
+              grep -oE 'href="[^"]+"' download_page.html | head -n 20
           else
               echo "Tìm thấy các link tải chính thức dưới đây:"
               echo "--------------------------------------------------"
