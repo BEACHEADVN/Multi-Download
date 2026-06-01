@@ -37,7 +37,6 @@ jobs:
           fi
 
           # 2. Trích xuất tất cả các đường link tải về trực tiếp (.zip cho Recovery và .tgz cho Fastboot)
-          # Server Xiaomi thường lưu ở cụm aliyuncs.com, bigota.d.miui.com hoặc hugeota.d.miui.com
           ALL_LINKS=$(echo "$PAGE_SOURCE" | grep -oE 'https://[a-zA-Z0-9./_-]+\.(zip|tgz)' | sort -u)
 
           echo "=================================================="
@@ -66,7 +65,9 @@ jobs:
                   FILTER_KEY="${{ env.REGION }}"
               fi
 
-              echo " LỌC FILE ROM THEO PHÂN VÙNG: ${{ env.REGION^^ }}"
+              # ĐÃ SỬA: Chuyển chuỗi REGION sang viết hoa an toàn bằng cú pháp Bash thuần túy ở dòng dưới
+              REGION_UPPER=$(echo "${{ env.REGION }}" | tr '[:lower:]' '[:upper:]')
+              echo " LỌC FILE ROM THEO PHÂN VÙNG: $REGION_UPPER"
               echo "--------------------------------------------------"
               
               FILTERED_LINKS=$(echo "$ALL_LINKS" | grep -i "$FILTER_KEY")
