@@ -1,79 +1,80 @@
-name: Find Latest Myron ROM
+name: Scrape Redmi K90 Pro Max ROM
 
 on:
   # Cho phép kích hoạt chạy bằng tay từ giao diện GitHub Actions
   workflow_dispatch:
     inputs:
       region:
-        description: 'Chọn phân vùng ROM (China, Europe, Global, India)'
+        description: 'Chọn phân vùng ROM cần lọc (eea, global, china, all)'
         required: true
-        default: 'Europe'
+        default: 'all'
 
   # Cấu hình chạy tự động định kỳ (Mặc định: 6 tiếng check 1 lần)
   schedule:
     - cron: '0 */6 * * *'
 
 jobs:
-  check-update:
+  scrape-rom:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Fetch Latest ROM Link via Community API
+      - name: Scrape MiuiRom Org Page
         env:
-          REGION_INPUT: ${{ github.event.inputs.region || 'Europe' }}
+          REGION: ${{ github.event.inputs.region || 'all' }}
         run: |
-          DEVICE="myron"
+          TARGET_URL="https://miuirom.org/phones/redmi-k90-pro-max"
+          echo "==> System: Connecting to $TARGET_URL..."
           
-          # Chuẩn hóa tên phân vùng theo chuẩn dữ liệu của Tracker quốc tế
-          if [ "$REGION_INPUT" = "EEA" ] || [ "$REGION_INPUT" = "Europe" ]; then
-              REGION="Europe"
-          elif [ "$REGION_INPUT" = "CN" ] || [ "$REGION_INPUT" = "China" ]; then
-              REGION="China"
-          elif [ "$REGION_INPUT" = "GL" ] || [ "$REGION_INPUT" = "Global" ]; then
-              REGION="Global"
-          else
-              REGION="$REGION_INPUT"
+          # 1. Tải mã nguồn HTML của trang web với User-Agent giả lập trình duyệt
+          PAGE_SOURCE=$(curl -s -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "$TARGET_URL")
+          
+          if [ -z "$PAGE_SOURCE" ] || echo "$PAGE_SOURCE" | grep -q "404 Not Found"; then
+              echo "❌ Error: Không thể tải được trang web hoặc đường dẫn link đã thay đổi."
+              exit 1
           fi
 
-          echo "==> System: Fetching latest stable ROM for $DEVICE ($REGION) from device specific tracker..."
-          
-          # Tải trực tiếp file dữ liệu JSON được tách riêng cho dòng máy myron để tránh lỗi parse lỗi file tổng
-          URL_API="https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/${DEVICE}.json"
-          RESPONSE=$(curl -s "$URL_API")
+          # 2. Trích xuất tất cả các đường link tải về trực tiếp (.zip cho Recovery và .tgz cho Fastboot)
+          # Server Xiaomi thường lưu ở cụm aliyuncs.com, bigota.d.miui.com hoặc hugeota.d.miui.com
+          ALL_LINKS=$(echo "$PAGE_SOURCE" | grep -oE 'https://[a-zA-Z0-9./_-]+\.(zip|tgz)' | sort -u)
 
-          # Kiểm tra nếu file thiết bị chưa tồn tại trên repo (Ví dụ do máy quá mới chưa được nạp dữ liệu riêng)
-          if [ -z "$RESPONSE" ] || echo "$RESPONSE" | grep -q "404: Not Found"; then
-              echo "⚠️ Warning: Không tìm thấy cơ sở dữ liệu riêng của $DEVICE. Đang thử chuyển hướng về kho tổng..."
-              RESPONSE=$(curl -s "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/stable_recovery.json")
-              # Ép kiểu dữ liệu an toàn để jq không bị crash
-              DATA_FILTERED=$(echo "$RESPONSE" | jq -r --arg reg "$REGION" '.[] | select(.region == $reg)')
-          else
-              # Lọc dữ liệu theo phân vùng từ file JSON riêng của myron
-              DATA_FILTERED=$(echo "$RESPONSE" | jq -r --arg reg "$REGION" '.[] | select(.region == $reg)')
+          echo "=================================================="
+          echo " CÀO DỮ LIỆU MIUROM.ORG THÀNH CÔNG"
+          echo "=================================================="
+
+          if [ -z "$ALL_LINKS" ]; then
+              echo " [Thông báo] Trang web hiện tại chưa cập nhật bất kỳ link download trực tiếp nào."
+              exit 0
           fi
 
-          echo "=================================================="
-          echo " TRACKER RESPONDED SUCCESSFULLY"
-          echo "=================================================="
-
-          if [ -z "$DATA_FILTERED" ] || [ "$DATA_FILTERED" = "null" ]; then
-              echo " [Thông báo] Hiện chưa có dữ liệu ROM bản Stable cho $DEVICE thuộc phân vùng $REGION."
-              echo " Dòng máy này chạy Android 16 rất mới, hãy kiểm tra lại phân vùng China (CN) xem đã có chưa nhé."
-          else
-              # Trích xuất thông tin bản dựng mới nhất dựa trên logic so sánh phiên bản của jq
-              VERSION=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .version')
-              FILENAME=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .filename')
-              LINK=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .download')
-              ANDROID_VER=$(echo "$DATA_FILTERED" | jq -r -s 'max_by(.version) | .android')
-
-              echo " FOUND LATEST STABLE ROM FOR ${DEVICE^^}"
+          # 3. Phân loại và lọc link theo yêu cầu của người dùng
+          if [ "${{ env.REGION }}" = "all" ]; then
+              echo " TẤT CẢ CÁC BẢN ROM TÌM THẤY TRÊN TRANG:"
               echo "--------------------------------------------------"
-              echo "Version:         $VERSION"
-              echo "Android Version: $ANDROID_VER"
-              echo "Filename:        $FILENAME"
-              echo "Download Link:   $LINK"
+              echo "$ALL_LINKS"
+          else
+              # Thiết lập từ khóa nhận diện Phân vùng trong tên File ROM của Xiaomi
+              if [ "${{ env.REGION }}" = "eea" ]; then
+                  FILTER_KEY="EU"
+              elif [ "${{ env.REGION }}" = "china" ] || [ "${{ env.REGION }}" = "cn" ]; then
+                  FILTER_KEY="CN"
+              elif [ "${{ env.REGION }}" = "global" ] || [ "${{ env.REGION }}" = "gl" ]; then
+                  FILTER_KEY="MI"
+              else
+                  FILTER_KEY="${{ env.REGION }}"
+              fi
+
+              echo " LỌC FILE ROM THEO PHÂN VÙNG: ${{ env.REGION^^ }}"
+              echo "--------------------------------------------------"
+              
+              FILTERED_LINKS=$(echo "$ALL_LINKS" | grep -i "$FILTER_KEY")
+
+              if [ -z "$FILTERED_LINKS" ]; then
+                  echo "❌ Không tìm thấy link nào khớp với phân vùng '$FILTER_KEY'."
+              else
+                  echo "$FILTERED_LINKS"
+              fi
           fi
           echo "=================================================="
