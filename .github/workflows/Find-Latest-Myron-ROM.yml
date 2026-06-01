@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       region:
-        description: 'Chọn phân vùng ROM (CN, GL, EEA, IN)'
+        description: 'Chọn phân vùng ROM (CN, GL, EEA)'
         required: true
         default: 'EEA'
 
@@ -42,17 +42,16 @@ jobs:
           device = 'myron'
           region = '${{ env.REGION }}'
           
+          # Cấu hình đúng mã định danh thiết bị 'PM' bóc tách từ link gốc của bạn
           if region == 'EEA':
-              version = 'OS3.0.1.0.WPMEUXM'
+              version = 'OS3.0.301.0.WPMEUXM'
           elif region == 'CN':
-              version = 'OS3.0.1.0.WPMCNXM'
+              version = 'OS3.0.301.0.WPMCNXM'
           else:
-              version = 'OS3.0.1.0.WPMMIXM'
+              version = 'OS3.0.301.0.WPMMIXM'
           
-          # Đổi sang endpoint API V2 thế hệ mới nhận JSON của Xiaomi
-          url = 'https://update.miui.com/updates/v2/v2rom.php'
+          url = 'https://update.miui.com/updates/v1/fullrom.php'
           
-          # Đóng gói tham số dạng json string được mã hóa gọn gàng
           payload = {
               'd': device,
               'v': version,
@@ -62,7 +61,7 @@ jobs:
               'n': 'NONE'
           }
           
-          print(f'==> System: Requesting update V2 for {device} ({region}) from base {version}...')
+          print(f'==> System: Requesting update for {device} ({region}) using valid base {version}...')
           
           try:
               headers = {
@@ -70,24 +69,31 @@ jobs:
                   'Content-Type': 'application/x-www-form-urlencoded'
               }
               
-              # Dùng phương thức POST truyền dữ liệu dạng form-encoded chuẩn cho file php nhận diện
+              # Dùng POST request truyền data chuẩn
               response = requests.post(url, data=payload, headers=headers, timeout=15)
               
               if response.status_code == 200:
-                  data = response.json()
-                  if 'CurrentRom' in data:
-                      rom_info = data['CurrentRom']
-                      print('\n==================================================')
-                      print(f' FOUND LATEST ROM FOR {device.upper()}')
-                      print('==================================================')
-                      print(f'Version: {rom_info.get(\"Version\", \"N/A\")}')
-                      print(f'Filename: {rom_info.get(\"Filename\", \"N/A\")}')
-                      print(f'MD5: {rom_info.get(\"MD5\", \"N/A\")}')
-                      print(f'Download Link: {rom_info.get(\"Link\", \"N/A\")}')
-                      print('==================================================\n')
+                  # Đôi khi nếu không có bản mới hơn, server Xiaomi trả về chuỗi văn bản trống hoặc JSON rỗng
+                  if response.text.strip():
+                      try:
+                          data = response.json()
+                          if 'CurrentRom' in data:
+                              rom_info = data['CurrentRom']
+                              print('\n==================================================')
+                              print(f' FOUND LATEST ROM FOR {device.upper()}')
+                              print('==================================================')
+                              print(f'Version: {rom_info.get(\"Version\", \"N/A\")}')
+                              print(f'Filename: {rom_info.get(\"Filename\", \"N/A\")}')
+                              print(f'MD5: {rom_info.get(\"MD5\", \"N/A\")}')
+                              print(f'Download Link: {rom_info.get(\"Link\", \"N/A\")}')
+                              print('==================================================\n')
+                          else:
+                              print('\n [Mới Nhất] Không có bản cập nhật nào mới hơn bản base này.')
+                              print('Response Data:', json.dumps(data, indent=2))
+                      except json.JSONDecodeError:
+                          print('❌ Error: Server returned non-JSON response:', response.text)
                   else:
-                      print('\n No new update found or server returned layout changes.')
-                      print('Response Data:', json.dumps(data, indent=2))
+                      print('\n [Mới Nhất] Server trả về rỗng, chứng tỏ bản base của bạn hiện là mới nhất.')
               else:
                   print(f'❌ Error: Server returned status code {response.status_code}')
                   print('Response Text:', response.text)
