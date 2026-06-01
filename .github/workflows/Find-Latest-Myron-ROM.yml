@@ -23,52 +23,63 @@ jobs:
           TARGET_URL="https://miuirom.org/phones/redmi-k90-pro-max"
           USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
           
-          # ĐÃ SỬA: Chuyển tên phân vùng sang chữ in hoa an toàn bằng lệnh Bash
           REGION_UPPER=$(echo "${{ env.CHOSEN_REGION }}" | tr '[:lower:]' '[:upper:]')
           
           echo "==> Bước 1: Tải giao diện trang chủ thiết bị..."
           curl -s -L -H "User-Agent: $USER_AGENT" "$TARGET_URL" > main.html
 
-          # Xác định từ khóa ký tự của phân vùng dựa trên lựa chọn của bạn
-          if [ "${{ env.CHOSEN_REGION }}" = "china" ]; then
-              REG_KEY="CN"
-          elif [ "${{ env.CHOSEN_REGION }}" = "eea" ] || [ "${{ env.CHOSEN_REGION }}" = "europe" ]; then
-              REG_KEY="EU"
-          elif [ "${{ env.CHOSEN_REGION }}" = "taiwan" ]; then
-              REG_KEY="TW"
-          elif [ "${{ env.CHOSEN_REGION }}" = "indonesia" ]; then
-              REG_KEY="ID"
-          else
-              REG_KEY="MI" # Bản Global
-          fi
-
-          echo "==> Bước 2: Tìm mã build tương ứng với phân vùng: $REGION_UPPER ($REG_KEY)..."
-          
-          # Lọc ra tất cả các đường link trang con chứa từ khóa /load/ hoặc /roms/ trên miuirom.org
-          # Kết hợp với việc tìm mã ROM (Ví dụ: WPMCNXM)
-          SUB_PATH=$(grep -oE '/[a-zA-Z0-9./_-]+' main.html | grep -E "load|roms" | grep "$REG_KEY" | head -n 1)
-
-          if [ -z "$SUB_PATH" ]; then
-              echo "❌ Thất bại: Không tìm thấy đường dẫn trang tải xuống cho phân vùng này trên giao diện."
-              echo "Kiểm tra lại xem trang web có chặn hoặc đổi cấu trúc href không."
+          if [ ! -s main.html ]; then
+              echo "❌ Thất bại: Không thể tải dữ liệu từ miuirom.org"
               exit 1
           fi
 
-          DOWNLOAD_PAGE_URL="https://miuirom.org$SUB_PATH"
-          echo "🔗 Đã tìm thấy trang tải con (Tương đương việc bấm Click): $DOWNLOAD_PAGE_URL"
+          # Chuẩn hóa từ khóa tìm kiếm theo đúng chữ hiển thị trên giao diện (In hoa chữ cái đầu)
+          if [ "${{ env.CHOSEN_REGION }}" = "china" ]; then
+              SEARCH_WORD="China"
+          elif [ "${{ env.CHOSEN_REGION }}" = "eea" ] || [ "${{ env.CHOSEN_REGION }}" = "europe" ]; then
+              SEARCH_WORD="Europe"
+          elif [ "${{ env.CHOSEN_REGION }}" = "taiwan" ]; then
+              SEARCH_WORD="Taiwan"
+          elif [ "${{ env.CHOSEN_REGION }}" = "indonesia" ]; then
+              SEARCH_WORD="Indonesia"
+          else
+              SEARCH_WORD="Global"
+          fi
 
-          echo "==> Bước 3: Truy cập vào trang tải con để bóc link CDN của Xiaomi..."
+          echo "==> Bước 2: Định vị block chứa từ khóa '$SEARCH_WORD' và trích xuất link con..."
+          
+          # Logic mới: Tìm dòng chứa chữ phân vùng, lấy thêm 10 dòng tiếp theo để quét thẻ <a href="...">
+          # Sau đó trích xuất ra đường dẫn URL con đầu tiên xuất hiện (/load/... hoặc /roms/...)
+          SUB_PATH=$(grep -i -A 10 ">$SEARCH_WORD<" main.html | grep -oE 'href="[^"]+"' | head -n 1 | cut -d'"' -f2)
+
+          # Nếu tìm theo cấu trúc thẻ đóng không được, thử tìm kiếm chuỗi text trần
+          if [ -z "$SUB_PATH" ]; then
+              SUB_PATH=$(grep -i -A 10 "$SEARCH_WORD" main.html | grep -oE 'href="[^"]+"' | head -n 1 | cut -d'"' -f2)
+          fi
+
+          if [ -z "$SUB_PATH" ]; then
+              echo "❌ Thất bại: Vẫn không định vị được thẻ href của phân vùng $SEARCH_WORD."
+              echo "==> DEBUG: In ra 30 dòng xung quanh từ khóa để kiểm tra cấu trúc HTML thực tế:"
+              grep -i -n -C 5 "$SEARCH_WORD" main.html | head -n 30
+              exit 1
+          fi
+
+          # Loại bỏ dấu gạch chéo thừa nếu có và tạo URL hoàn chỉnh
+          DOWNLOAD_PAGE_URL="https://miuirom.org$(echo "$SUB_PATH" | sed 's|^https://miuirom.org||')"
+          echo "🔗 Giả lập Click thành công! Trang con mục tiêu: $DOWNLOAD_PAGE_URL"
+
+          echo "==> Bước 3: Truy cập trang con để lấy link tải (.zip/.tgz)..."
           curl -s -L -H "User-Agent: $USER_AGENT" "$DOWNLOAD_PAGE_URL" > download_page.html
 
-          # Quét tìm link chứa đuôi .zip (Recovery) hoặc .tgz (Fastboot) trực tiếp từ server gốc
+          # Quét tìm tất cả các link download trực tiếp của Xiaomi (.zip hoặc .tgz)
           FINAL_DOWNLOAD_LINKS=$(grep -oE 'https://[a-zA-Z0-9./_-]+\.(zip|tgz)' download_page.html | sort -u)
 
           echo "=================================================="
           echo " RESULT FOR YOUR SELECTION: $REGION_UPPER"
           echo "=================================================="
           if [ -z "$FINAL_DOWNLOAD_LINKS" ]; then
-              echo "❌ Không tìm thấy link trực tiếp .zip/.tgz nào trong trang con."
-              echo "Có thể bản ROM này mới hiển thị tên phiên bản chứ chưa được miuirom.org gắn link tải."
+              echo "⚠️ Chú ý: Đã vào được trang con nhưng không tìm thấy link trực tiếp (.zip/.tgz)."
+              echo "Có thể miuirom.org dùng nút bấm dạng mã hóa JavaScript hoặc phân vùng này chưa có file."
           else
               echo "Tìm thấy các link tải chính thức dưới đây:"
               echo "--------------------------------------------------"
