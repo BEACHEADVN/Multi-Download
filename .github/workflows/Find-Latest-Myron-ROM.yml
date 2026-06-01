@@ -1,81 +1,73 @@
-name: Scrape Redmi K90 Pro Max ROM
+name: Test Scrape MiuiRom Org Keywords
 
 on:
-  # Cho phép kích hoạt chạy bằng tay từ giao diện GitHub Actions
+  # Kích hoạt chạy bằng tay từ giao diện GitHub Actions
   workflow_dispatch:
-    inputs:
-      region:
-        description: 'Chọn phân vùng ROM cần lọc (eea, global, china, all)'
-        required: true
-        default: 'all'
 
-  # Cấu hình chạy tự động định kỳ (Mặc định: 6 tiếng check 1 lần)
+  # Chạy tự động định kỳ nếu cần
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */12 * * *'
 
 jobs:
-  scrape-rom:
+  test-keywords:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Scrape MiuiRom Org Page
-        env:
-          REGION: ${{ github.event.inputs.region || 'all' }}
+      - name: Fetch Page and Inspect Keywords
         run: |
           TARGET_URL="https://miuirom.org/phones/redmi-k90-pro-max"
-          echo "==> System: Connecting to $TARGET_URL..."
+          echo "==> System: Connecting to $TARGET_URL to test keywords..."
           
-          # 1. Tải mã nguồn HTML của trang web với User-Agent giả lập trình duyệt
-          PAGE_SOURCE=$(curl -s -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "$TARGET_URL")
+          # Tải mã nguồn HTML và lưu tạm vào một file text
+          curl -s -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "$TARGET_URL" > page.html
           
-          if [ -z "$PAGE_SOURCE" ] || echo "$PAGE_SOURCE" | grep -q "404 Not Found"; then
-              echo "❌ Error: Không thể tải được trang web hoặc đường dẫn link đã thay đổi."
+          # Kiểm tra nếu file tải về bị rỗng
+          if [ ! -s page.html ]; then
+              echo "❌ Error: Không tải được dữ liệu từ trang web."
               exit 1
           fi
 
-          # 2. Trích xuất tất cả các đường link tải về trực tiếp (.zip cho Recovery và .tgz cho Fastboot)
-          ALL_LINKS=$(echo "$PAGE_SOURCE" | grep -oE 'https://[a-zA-Z0-9./_-]+\.(zip|tgz)' | sort -u)
-
           echo "=================================================="
-          echo " CÀO DỮ LIỆU MIUROM.ORG THÀNH CÔNG"
+          echo " KIỂM TRA TỪ KHÓA TRÊN TRANG MIUIROM.ORG"
           echo "=================================================="
-
-          if [ -z "$ALL_LINKS" ]; then
-              echo " [Thông báo] Trang web hiện tại chưa cập nhật bất kỳ link download trực tiếp nào."
-              exit 0
+          
+          echo "--- 1. Kiểm tra từ khóa 'China' ---"
+          # -i: không phân biệt chữ hoa thường, -m 10: lấy tối đa 10 dòng đầu tiên tìm thấy
+          if grep -iq "china" page.html; then
+              echo "✅ Tìm thấy từ khóa 'China'. Dưới đây là các dòng chứa từ khóa:"
+              grep -i -n "china" page.html | head -n 10
+          else
+              echo "❌ Không tìm thấy từ khóa 'China' trong mã nguồn HTML."
           fi
 
-          # 3. Phân loại và lọc link theo yêu cầu của người dùng
-          if [ "${{ env.REGION }}" = "all" ]; then
-              echo " TẤT CẢ CÁC BẢN ROM TÌM THẤY TRÊN TRANG:"
-              echo "--------------------------------------------------"
-              echo "$ALL_LINKS"
+          echo -e "\n--- 2. Kiểm tra từ khóa 'Europe' hoặc 'EEA' ---"
+          if grep -iqE "europe|eea" page.html; then
+              echo "✅ Tìm thấy từ khóa liên quan đến Châu Âu. Dưới đây là các dòng chứa từ khóa:"
+              grep -i -nE "europe|eea" page.html | head -n 10
           else
-              # Thiết lập từ khóa nhận diện Phân vùng trong tên File ROM của Xiaomi
-              if [ "${{ env.REGION }}" = "eea" ]; then
-                  FILTER_KEY="EU"
-              elif [ "${{ env.REGION }}" = "china" ] || [ "${{ env.REGION }}" = "cn" ]; then
-                  FILTER_KEY="CN"
-              elif [ "${{ env.REGION }}" = "global" ] || [ "${{ env.REGION }}" = "gl" ]; then
-                  FILTER_KEY="MI"
-              else
-                  FILTER_KEY="${{ env.REGION }}"
-              fi
+              echo "❌ Không tìm thấy từ khóa 'Europe' hay 'EEA'."
+          fi
 
-              # ĐÃ SỬA: Chuyển chuỗi REGION sang viết hoa an toàn bằng cú pháp Bash thuần túy ở dòng dưới
-              REGION_UPPER=$(echo "${{ env.REGION }}" | tr '[:lower:]' '[:upper:]')
-              echo " LỌC FILE ROM THEO PHÂN VÙNG: $REGION_UPPER"
-              echo "--------------------------------------------------"
-              
-              FILTERED_LINKS=$(echo "$ALL_LINKS" | grep -i "$FILTER_KEY")
+          echo -e "\n--- 3. Kiểm tra từ khóa 'Global' ---"
+          if grep -iq "global" page.html; then
+              echo "✅ Tìm thấy từ khóa 'Global'. Dưới đây là các dòng chứa từ khóa:"
+              grep -i -n "global" page.html | head -n 10
+          else
+              echo "❌ Không tìm thấy từ khóa 'Global'."
+          fi
 
-              if [ -z "$FILTERED_LINKS" ]; then
-                  echo "❌ Không tìm thấy link nào khớp với phân vùng '$FILTER_KEY'."
-              else
-                  echo "$FILTERED_LINKS"
-              fi
+          echo "=================================================="
+          echo " KIỂM TRA CẤU TRÚC BẢNG (TABLE) CHỨA ROM"
+          echo "=================================================="
+          # Quét xem trang web có sử dụng các thẻ bảng dữ liệu tiêu chuẩn không
+          if grep -q "<table" page.html; then
+              echo " Tổng số bảng dữ liệu (Table) xuất hiện trên trang: $(grep -c "<table" page.html)"
+              echo " Ví dụ cấu trúc tiêu đề bảng:"
+              grep -n "<thead" page.html -A 3 | head -n 15
+          else
+              echo " Trực quan: Trang web này không dùng thẻ <table> thông thường để chia block, có thể họ dùng thẻ <div>."
           fi
           echo "=================================================="
