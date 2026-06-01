@@ -42,7 +42,6 @@ jobs:
           device = 'myron'
           region = '${{ env.REGION }}'
           
-          # Sử dụng phiên bản gốc ban đầu của thiết bị để làm mốc check update
           if region == 'EEA':
               version = 'OS3.0.1.0.WPMEUXM'
           elif region == 'CN':
@@ -50,8 +49,10 @@ jobs:
           else:
               version = 'OS3.0.1.0.WPMMIXM'
           
-          url = 'https://update.miui.com/updates/v1/fullrom.php'
+          # Đổi sang endpoint API V2 thế hệ mới nhận JSON của Xiaomi
+          url = 'https://update.miui.com/updates/v2/v2rom.php'
           
+          # Đóng gói tham số dạng json string được mã hóa gọn gàng
           payload = {
               'd': device,
               'v': version,
@@ -61,15 +62,16 @@ jobs:
               'n': 'NONE'
           }
           
-          print(f'==> System: Requesting update for {device} ({region}) from base {version}...')
+          print(f'==> System: Requesting update V2 for {device} ({region}) from base {version}...')
           
           try:
               headers = {
                   'User-Agent': 'MiuiUpdater-App',
-                  'Content-Type': 'application/json'
+                  'Content-Type': 'application/x-www-form-urlencoded'
               }
-              # Chuyển payload từ 'data=' sang 'params=' để ép tham số lên URL, tránh lỗi 'No input file specified'
-              response = requests.get(url, params=payload, headers=headers, timeout=15)
+              
+              # Dùng phương thức POST truyền dữ liệu dạng form-encoded chuẩn cho file php nhận diện
+              response = requests.post(url, data=payload, headers=headers, timeout=15)
               
               if response.status_code == 200:
                   data = response.json()
@@ -84,7 +86,7 @@ jobs:
                       print(f'Download Link: {rom_info.get(\"Link\", \"N/A\")}')
                       print('==================================================\n')
                   else:
-                      print('\n No new update found. Your base version might be the latest or server returned empty.')
+                      print('\n No new update found or server returned layout changes.')
                       print('Response Data:', json.dumps(data, indent=2))
               else:
                   print(f'❌ Error: Server returned status code {response.status_code}')
