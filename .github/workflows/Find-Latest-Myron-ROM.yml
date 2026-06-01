@@ -31,24 +31,29 @@ jobs:
           echo " LATEST FIRMWARE UPDATES (MIUIROM.ORG)"
           echo "=================================================="
 
-          # 2. Định nghĩa danh sách phân vùng cần bóc tách dựa theo giao diện ảnh chụp
-          REGIONS=("Global" "Europe" "China" "Indonesia" "Taiwan")
+          # 2. Bóc tách toàn bộ các chuỗi mã build ROM xuất hiện trong trang (Ví dụ: 3.0.13.0.WPMMIXM)
+          # Định dạng: Số.Số.Số.Số.KýTựViếtHoa
+          MAP_VERSIONS=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.[A-Z]+' source.html)
 
-          for REGION in "${REGIONS[@]}"; do
-              # Tìm dòng chứa tên phân vùng và lấy thêm 5 dòng tiếp theo (chứa mã OS)
-              REGION_BLOCK=$(grep -i -A 5 ">$REGION<" source.html || grep -i -A 5 "$REGION" source.html)
-              
-              if [ -n "$REGION_BLOCK" ]; then
-                  # Dùng regex lọc ra chuỗi phiên bản dạng OS3.0.X.X.WPMXXXX
-                  VERSION=$(echo "$REGION_BLOCK" | grep -oE 'OS[0-9.]+\.[0-9A-Z]+' | head -n 1)
-                  
-                  if [ -n "$VERSION" ]; then
-                      printf "📍 %-12s : %s\n" "$REGION" "$VERSION"
-                  else
-                      printf "📍 %-12s : Tìm thấy phân vùng nhưng chưa bóc tách được mã version\n" "$REGION"
-                  fi
-              else
-                  printf "📍 %-12s : Không tìm thấy block dữ liệu trên trang\n" "$REGION"
-              fi
-          done
+          if [ -z "$MAP_VERSIONS" ]; then
+              echo "❌ Không tìm thấy chuỗi mã phiên bản nào trên trang."
+              echo "Có thể cấu trúc HTML đã thay đổi. Log thử 50 dòng chứa chữ WP để check:"
+              grep -i "WPM" source.html | head -n 50
+              exit 0
+          fi
+
+          # 3. Đọc từng dòng phiên bản tìm được và gán tương ứng theo thứ tự hiển thị trong ảnh
+          echo "$MAP_VERSIONS" | {
+              read -r GLOBAL_VER
+              read -r EUROPE_VER
+              read -r CHINA_VER
+              read -r INDONESIA_VER
+              read -r TAIWAN_VER
+
+              printf "📍 %-12s : HyperOS %s\n" "Global" "${GLOBAL_VER:-N/A}"
+              printf "📍 %-12s : HyperOS %s\n" "Europe" "${EUROPE_VER:-N/A}"
+              printf "📍 %-12s : HyperOS %s\n" "China" "${CHINA_VER:-N/A}"
+              printf "📍 %-12s : HyperOS %s\n" "Indonesia" "${INDONESIA_VER:-N/A}"
+              printf "📍 %-12s : HyperOS %s\n" "Taiwan" "${TAIWAN_VER:-N/A}"
+          }
           echo "=================================================="
