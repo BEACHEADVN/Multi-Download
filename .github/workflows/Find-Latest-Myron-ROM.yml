@@ -16,7 +16,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Decode Partition Base64 Link
+      - name: Construct and Fetch Direct Link
         env:
           CHOSEN_REGION: ${{ github.event.inputs.region || 'china' }}
         run: |
@@ -41,35 +41,35 @@ jobs:
               REG_KEY="WPMMIXM"
           fi
 
-          echo "==> Bước 2: Cô lập block HTML chứa mã vùng $REG_KEY..."
-          
-          # Cắt một khối nhỏ gồm dòng chứa mã vùng và 8 dòng tiếp theo để triệt tiêu việc nhận nhầm sang vùng khác
-          # Sau đó bốc chuỗi Base64 (bắt đầu bằng aHR0c) duy nhất nằm trong khối này
-          BASE64_STR=$(grep -A 8 "$REG_KEY" main.html | grep -oE 'aHR0cH[a-zA-Z0-9+=]+' | head -n 1)
+          echo "==> Bước 2: Bóc tách chính xác số phiên bản cho vùng $REGION_UPPER..."
+          # Lấy chính xác chuỗi phiên bản đầy đủ từ trang chủ (Ví dụ: 3.0.306.0.WPMCNXM)
+          FULL_VERSION=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.[A-Z]+' main.html | grep "$REG_KEY" | head -n 1)
 
-          if [ -z "$BASE64_STR" ]; then
-              echo "❌ Thất bại: Không tìm thấy chuỗi mã hóa ẩn của phân vùng này."
+          if [ -z "$FULL_VERSION" ]; then
+              echo "❌ Thất bại: Không tìm thấy số phiên bản khớp với mã $REG_KEY trên trang chủ."
               exit 1
           fi
 
-          # Giải mã chuỗi Base64 để lấy link trang chuyển tiếp của miuirom.org
-          DECODED_URL=$(echo "$BASE64_STR" | base64 -d 2>/dev/null)
-          echo "🔗 Link trang chuyển tiếp bốc được: $DECODED_URL"
+          echo "✅ Đã tìm thấy số phiên bản chuẩn: $FULL_VERSION"
 
-          echo "==> Bước 3: Truy cập link chuyển tiếp lấy link tải chính thức..."
-          # Trang chuyển tiếp này thực tế sẽ ghi nhận yêu cầu và trả về code có chứa link trực tiếp bigota/hugeota
-          DOWNLOAD_PAGE=$(curl -s -L -H "User-Agent: $USER_AGENT" "$DECODED_URL")
+          echo "==> Bước 3: Tự dựng URL chuyển tiếp (Bypass mã hóa Base64 của website)..."
+          # Tự lắp ráp tham số thay vì đi cào chuỗi mã hóa bị lỗi
+          CONSTRUCTED_URL="https://miuirom.org/load?o=redmi-k90-pro-max&v=${FULL_VERSION}&l=en&t=Recovery"
+          echo "🔗 URL trang tải dựng sẵn: $CONSTRUCTED_URL"
 
-          # Quét tìm liên kết tải chính thức .zip của Xiaomi
+          echo "==> Bước 4: Truy cập trang tải và trích xuất link CDN của Xiaomi..."
+          # Tải trang con và dùng cấu trúc User-Agent chuẩn
+          DOWNLOAD_PAGE=$(curl -s -L -H "User-Agent: $USER_AGENT" "$CONSTRUCTED_URL")
+
+          # Tìm các link .zip chứa server bigota hoặc hugeota quen thuộc của Xiaomi
           DIRECT_LINK=$(echo "$DOWNLOAD_PAGE" | grep -oE 'https://[a-zA-Z0-9./_-]+\.zip' | sort -u | head -n 1)
 
-          # Nếu trang chuyển tiếp vẫn giấu link, ta ép thẳng qua API Xiaomi bằng tham số trần (không bọc chữ OS)
+          # Nếu trang con vẫn không chứa link dạng văn bản thô, dùng giải pháp API Xiaomi gốc làm backup
           if [ -z "$DIRECT_LINK" ]; then
-              echo "⚠️ Link vẫn bị giấu mã hóa sâu. Đang chuyển sang kích hoạt API Xiaomi với mã gốc..."
-              FULL_VERSION=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.[A-Z]+' main.html | grep "$REG_KEY" | head -n 1)
+              echo "⚠️ Không tìm thấy link trực tiếp trên trang web. Thử ép tải qua cụm API chính thức..."
               
-              # Thử nghiệm cấu hình payload chuẩn không chứa ký tự dư thừa
               API_URL="https://update.miui.com/updates/v1/fullrom.php"
+              # Cấu hình payload chuẩn hóa loại bỏ chữ OS thừa
               PAYLOAD="d=myron&v=${FULL_VERSION}&b=F&r=${REG_KEY:3:2}&l=en_US&n=NONE"
               
               RESPONSE=$(curl -s -X POST "$API_URL" -H "Content-Type: application/x-www-form-urlencoded" -d "$PAYLOAD")
@@ -80,11 +80,11 @@ jobs:
           echo " DOWNLOAD LINK FOR $REGION_UPPER"
           echo "=================================================="
           if [ -z "$DIRECT_LINK" ]; then
-              echo "❌ Hệ thống chưa tìm thấy link tải gói (.zip) toàn vẹn cho phiên bản này."
-              echo "Nguyên nhân: Bản build này có thể đang ở dạng nội bộ (Beta/Stable Beta) nên Xiaomi chưa đẩy lên CDN công khai công nghiệp."
+              echo "❌ Hệ thống không thể lấy được link tải tự động."
+              echo "Giải pháp thủ công: Bạn có thể copy link trang tải dựng sẵn ở Bước 3 dán vào trình duyệt để bấm nút Download trực tiếp bằng tay."
           else
-              echo "Mã phiên bản: $REG_KEY"
-              echo "Đường link tải trực tiếp:"
+              echo "Phiên bản: $FULL_VERSION"
+              echo "Đường link tải trực tiếp (Mở là tự động download):"
               echo "$DIRECT_LINK"
           fi
           echo "=================================================="
