@@ -1,6 +1,6 @@
 HyperTN_V3.3_Myron_China_OS3.0.305.0.WPMCNXM_A16_20260505.7z|K1xHhDbo
 HyperTN_V3.3_Socrates_China_OS3.0.303.0.WMKCNXM_A16_20260422.7z|dxGptfxP
-HyperUR_myron_OS3.0.305.0.WPMCNXM_16.zip|1iCvsTUc,ZDpG5Nb2
+HyperUR_myron_OS3.0.305.0.WPMCNXM_16.zip|y8Bttfst,gyViyLia
 HyperUR_socrates_OS3.0.303.0.WMKCNXM_16.zip|7F5Jymkn
 xiaomi.eu_MYRON_OS3.0.303.0.WPMCNXM_16.zip|CnMweyhg
 xiaomi.eu_MYRON_OS3.0.306.0.WPMCNXM_16.zip|S5Ppma5v
