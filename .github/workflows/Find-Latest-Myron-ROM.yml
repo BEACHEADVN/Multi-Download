@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       rom_type:
-        description: 'Chọn loại ROM để lấy link (recovery hoặc fastboot)'
+        description: 'Chọn loại ROM để tải (recovery hoặc fastboot)'
         required: true
         default: 'recovery'
         type: choice
@@ -13,74 +13,117 @@ on:
           - fastboot
 
 jobs:
-  get-real-link:
+  auto-fetch-and-download:
     runs-on: ubuntu-latest
 
     steps:
       - name: Kiểm tra mã nguồn
         uses: actions/checkout@v4
 
-      - name: Thiết lập môi trường Python
+      - name: Thiết lập Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.10'
 
-      - name: Cài đặt thư viện cần thiết
-        run: pip install requests
+      - name: Cài đặt thư viện Cào dữ liệu
+        run: pip install requests beautifulsoup4
 
-      - name: Tìm kiếm Link tải thực tế từ HyperOS ROMs API
-        id: fetch_link
+      - name: Cào dữ liệu lấy Link Bigota chính thức
+        id: scraper
         run: |
           python - <<EOF
           import requests
-          import json
+          from bs4 import BeautifulSoup
           import os
+          import re
 
-          # Gọi API của hyperosroms cho model myron
-          url = "https://data.hyperosroms.com/model/myron.json"
-          response = requests.get(url)
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          }
           
-          if response.status_size == 0 or response.status_code != 200:
-              # Nếu API json không hoạt động, thử gọi api thay thế hoặc báo lỗi
-              print("Không thể kết nối đến API dữ liệu Rom.")
+          # Bước 1: Truy cập trang tổng hợp của model Myron
+          base_url = "https://hyperosroms.com"
+          model_url = f"{base_url}/model/myron"
+          
+          print(f"Đang quét trang tổng hợp: {model_url}")
+          res = requests.get(model_url, headers=headers, timeout=15)
+          if res.status_code != 200:
+              print("Không thể truy cập trang chủ model Myron")
               exit(1)
               
-          data = response.json()
+          soup = BeautifulSoup(res.text, 'html.parser')
           
-          rom_type_input = "${{ github.event.inputs.rom_type }}"
-          target_link = ""
-          target_version = ""
+          # Tìm tất cả các hàng trong bảng danh sách ROM
+          rows = soup.find_all('tr')
+          sub_page_url = ""
+          rom_type_input = "${{ github.event.inputs.rom_type }}".strip().lower()
 
-          # Lọc các bản ghi thuộc region China (CN) và đúng Rom Type yêu cầu
-          for rom in data:
-              # Kiểm tra khu vực là China và đúng loại ROM cần tìm (recovery/fastboot)
-              if rom.get("region") == "China" and rom.get("rom_type") == rom_type_input:
-                  target_link = rom.get("link")
-                  target_version = rom.get("version")
-                  break # Vì danh sách trả về thường xếp từ mới nhất đến cũ hơn
+          for row in rows:
+              cells = row.find_all('td')
+              if len(cells) >= 5:
+                  # Cấu trúc cột: 0: Version, 1: Region, 2: ROM Type, 3: Branch/Status
+                  version_text = cells[0].get_text(strip=True)
+                  region_text = cells[1].get_text(strip=True)
+                  type_text = cells[2].get_text(strip=True).lower()
+                  
+                  # Lọc hàng có vùng China và đúng loại ROM (recovery/fastboot)
+                  if region_text == "China" and type_text == rom_type_input:
+                      # Lấy link chi tiết ở cột Version hoặc nút Download cuối hàng
+                      link_tag = cells[0].find('a') or cells[-1].find('a')
+                      if link_tag and 'href' in link_tag.attrs:
+                          sub_page_url = base_url + link_tag['href'] if link_tag['href'].startswith('/') else link_tag['href']
+                          print(f"Tìm thấy trang chi tiết của phiên bản {version_text}: {sub_page_url}")
+                          break
 
-          if target_link:
-              print(f"Tìm thấy phiên bản mới nhất: {target_version}")
-              print(f"Link tải chính xác: {target_link}")
-              # Ghi vào GitHub Environment để bước sau sử dụng
-              with open(os.environ['GITHUB_ENV'], 'a') as f:
-                  f.write(f"REAL_DOWNLOAD_URL={target_link}\n")
-                  f.write(f"ROM_VERSION={target_version}\n")
-          else:
-              print("Không tìm thấy link phù hợp cho vùng China.")
+          if not sub_page_url:
+              print("Không tìm thấy phiên bản phù hợp cho vùng China.")
               exit(1)
+
+          # Bước 2: Truy cập vào trang chi tiết phiên bản để bóc tách Package Name
+          print(f"Đang quét trang chi tiết: {sub_page_url}")
+          res_sub = requests.get(sub_page_url, headers=headers, timeout=15)
+          soup_sub = BeautifulSoup(res_sub.text, 'html.parser')
+          
+          # Tìm kiếm thông tin Package Name trong văn bản hoặc danh sách thuộc tính
+          package_name = ""
+          for li in soup_sub.find_all(['li', 'p']):
+              text = li.get_text()
+              if "Package Name:" in text:
+                  package_name = text.split("Package Name:")[-1].strip()
+                  break
+                  
+          # Phương án dự phòng nếu giao diện thay đổi cấu trúc hiển thị text
+          if not package_name:
+              match = re.search(r'([\w-]+\.zip|[\w-]+\.tgz)', res_sub.text)
+              if match:
+                  package_name = match.group(1)
+
+          if not package_name:
+              print("Không thể trích xuất Package Name từ trang chi tiết.")
+              exit(1)
+
+          # Bước 3: Kiểm tra định dạng và tạo Link tải Bigota chuẩn xác
+          version_code = sub_page_url.split('/')[-1]
+          final_download_url = f"https://bigota.d.miui.com/{version_code}/{package_name}"
+          
+          print(f"[THÀNH CÔNG] Link tải tự động hoàn toàn: {final_download_url}")
+          
+          # Ghi link vào môi trường GitHub Action
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f"DOWNLOAD_URL={final_download_url}\n")
+              f.write(f"ROM_VERSION={version_code}\n")
           EOF
 
-      - name: Tiến hành tải gói ROM chính thức bằng Link vừa tìm được
+      - name: Thực hiện tải gói ROM chính thức
         run: |
           echo "Bắt đầu tải phiên bản: ${{ env.ROM_VERSION }}"
-          echo "Từ đường dẫn trực tiếp: ${{ env.REAL_DOWNLOAD_URL }}"
+          echo "Đường dẫn tải: ${{ env.DOWNLOAD_URL }}"
           
-          # Sử dụng mã băm bảo mật GitHub Secret
+          # Tích hợp mã bảo mật cá nhân
           SECRET_HASH="${{ secrets.MY_KSU_HASH }}"
           
-          # Thực hiện lệnh curl tải file thật về máy ảo GitHub
-          curl -L -O "${{ env.REAL_DOWNLOAD_URL }}"
+          # Chạy curl tải file về máy ảo
+          curl -L -O "${{ env.DOWNLOAD_URL }}"
           
-          echo "Hoàn thành tải file cho thiết bị Myron."
+          echo "Quá trình tải hoàn tất!"
           ls -lh
