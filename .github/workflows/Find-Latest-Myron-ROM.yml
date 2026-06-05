@@ -1,90 +1,56 @@
-name: Get Redmi K90 Pro Max ROM Link
+name: Tải ROM HyperOS China - Thiết bị Myron
 
 on:
   workflow_dispatch:
     inputs:
-      region:
-        description: 'Chọn phân vùng muốn lấy link tải (china, eea, global, taiwan, indonesia)'
+      rom_type:
+        description: 'Chọn loại ROM để tải (recovery hoặc fastboot)'
         required: true
-        default: 'china'
+        default: 'recovery'
+        type: choice
+        options:
+          - recovery
+          - fastboot
 
 jobs:
-  get-link:
+  download-and-process:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Kiểm tra mã nguồn
         uses: actions/checkout@v4
 
-      - name: Construct and Fetch Direct Link
-        env:
-          CHOSEN_REGION: ${{ github.event.inputs.region || 'china' }}
+      - name: Thiết lập biến môi trường và liên kết tải xuống
         run: |
-          TARGET_URL="https://miuirom.org/phones/redmi-k90-pro-max"
-          USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          DEVICE="myron"
+          TYPE="${{ github.event.inputs.rom_type }}"
           
-          REGION_UPPER=$(echo "${{ env.CHOSEN_REGION }}" | tr '[:lower:]' '[:upper:]')
+          if [ "$TYPE" = "recovery" ]; then
+            VERSION="OS3.0.306.0.WPMCNXM"
+            # Link Recovery ROM ổn định mới nhất
+            DOWNLOAD_URL="https://bigota.d.miui.com/OS3.0.306.0.WPMCNXM/miui_MYRON_OS3.0.306.0.WPMCNXM_8992a6c11a_16.0.zip"
+          else
+            VERSION="OS3.0.303.0.WPMCNXM"
+            # Link Fastboot ROM ổn định mới nhất
+            DOWNLOAD_URL="https://bigota.d.miui.com/OS3.0.303.0.WPMCNXM/myron_images_OS3.0.303.0.WPMCNXM_20260308.0000.00_16.0_cn_ca2cfb5ada.tgz"
+          fi
           
-          echo "==> Bước 1: Tải giao diện trang chủ..."
-          curl -s -L -H "User-Agent: $USER_AGENT" "$TARGET_URL" > main.html
+          echo "ROM_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "ROM_URL=$DOWNLOAD_URL" >> $GITHUB_ENV
+          echo "Đang chuẩn bị tải phiên bản $VERSION ($TYPE)..."
 
-          # Xác định mã định danh phân vùng
-          if [ "${{ env.CHOSEN_REGION }}" = "china" ]; then
-              REG_KEY="WPMCNXM"
-          elif [ "${{ env.CHOSEN_REGION }}" = "eea" ] || [ "${{ env.CHOSEN_REGION }}" = "europe" ]; then
-              REG_KEY="WPMEUXM"
-          elif [ "${{ env.CHOSEN_REGION }}" = "taiwan" ]; then
-              REG_KEY="WPMTWXM"
-          elif [ "${{ env.CHOSEN_REGION }}" = "indonesia" ]; then
-              REG_KEY="WPMIDXM"
-          else
-              REG_KEY="WPMMIXM"
-          fi
+      - name: Tiến hành tải gói ROM trực tiếp từ máy chủ Xiaomi
+        run: |
+          echo "Đang tải xuống từ liên kết: ${{ env.ROM_URL }}"
+          # Sử dụng mã băm bảo mật GitHub Secret đã lưu cấu hình trước đó
+          SECRET_HASH="${{ secrets.MY_KSU_HASH }}"
+          
+          # Thực hiện lệnh tải file (Tự động lưu file dựa trên định dạng của link gốc)
+          curl -L -O "${{ env.ROM_URL }}"
+          
+          echo "Quá trình tải xuống phiên bản ${{ env.ROM_VERSION }} thành công."
 
-          echo "==> Bước 2: Bóc tách chính xác số phiên bản cho vùng $REGION_UPPER..."
-          # Lấy chính xác chuỗi phiên bản đầy đủ từ trang chủ (Ví dụ: 3.0.306.0.WPMCNXM)
-          FULL_VERSION=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.[A-Z]+' main.html | grep "$REG_KEY" | head -n 1)
-
-          if [ -z "$FULL_VERSION" ]; then
-              echo "❌ Thất bại: Không tìm thấy số phiên bản khớp với mã $REG_KEY trên trang chủ."
-              exit 1
-          fi
-
-          echo "✅ Đã tìm thấy số phiên bản chuẩn: $FULL_VERSION"
-
-          echo "==> Bước 3: Tự dựng URL chuyển tiếp (Bypass mã hóa Base64 của website)..."
-          # Tự lắp ráp tham số thay vì đi cào chuỗi mã hóa bị lỗi
-          CONSTRUCTED_URL="https://miuirom.org/load?o=redmi-k90-pro-max&v=${FULL_VERSION}&l=en&t=Recovery"
-          echo "🔗 URL trang tải dựng sẵn: $CONSTRUCTED_URL"
-
-          echo "==> Bước 4: Truy cập trang tải và trích xuất link CDN của Xiaomi..."
-          # Tải trang con và dùng cấu trúc User-Agent chuẩn
-          DOWNLOAD_PAGE=$(curl -s -L -H "User-Agent: $USER_AGENT" "$CONSTRUCTED_URL")
-
-          # Tìm các link .zip chứa server bigota hoặc hugeota quen thuộc của Xiaomi
-          DIRECT_LINK=$(echo "$DOWNLOAD_PAGE" | grep -oE 'https://[a-zA-Z0-9./_-]+\.zip' | sort -u | head -n 1)
-
-          # Nếu trang con vẫn không chứa link dạng văn bản thô, dùng giải pháp API Xiaomi gốc làm backup
-          if [ -z "$DIRECT_LINK" ]; then
-              echo "⚠️ Không tìm thấy link trực tiếp trên trang web. Thử ép tải qua cụm API chính thức..."
-              
-              API_URL="https://update.miui.com/updates/v1/fullrom.php"
-              # Cấu hình payload chuẩn hóa loại bỏ chữ OS thừa
-              PAYLOAD="d=myron&v=${FULL_VERSION}&b=F&r=${REG_KEY:3:2}&l=en_US&n=NONE"
-              
-              RESPONSE=$(curl -s -X POST "$API_URL" -H "Content-Type: application/x-www-form-urlencoded" -d "$PAYLOAD")
-              DIRECT_LINK=$(echo "$RESPONSE" | grep -oE 'https://[a-zA-Z0-9./_-]+\.zip' | head -n 1)
-          fi
-
-          echo "=================================================="
-          echo " DOWNLOAD LINK FOR $REGION_UPPER"
-          echo "=================================================="
-          if [ -z "$DIRECT_LINK" ]; then
-              echo "❌ Hệ thống không thể lấy được link tải tự động."
-              echo "Giải pháp thủ công: Bạn có thể copy link trang tải dựng sẵn ở Bước 3 dán vào trình duyệt để bấm nút Download trực tiếp bằng tay."
-          else
-              echo "Phiên bản: $FULL_VERSION"
-              echo "Đường link tải trực tiếp (Mở là tự động download):"
-              echo "$DIRECT_LINK"
-          fi
-          echo "=================================================="
+      - name: Xác thực tệp và xử lý gói cấu trúc
+        run: |
+          ls -lh
+          # Thêm các câu lệnh giải nén hoặc xử lý boot.img/init_boot.img tùy theo nhu cầu KernelSU tại đây
