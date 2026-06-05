@@ -1,4 +1,4 @@
-name: Tự động lấy link ROM HyperOS China (Myron)
+name: Tự động lấy link ROM HyperOS China Tốc Độ Cao (Myron)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
           - fastboot
 
 jobs:
-  auto-fetch-and-download:
+  auto-fetch-high-speed:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,7 +28,7 @@ jobs:
       - name: Cài đặt thư viện Cào dữ liệu
         run: pip install requests beautifulsoup4
 
-      - name: Cào dữ liệu lấy Link Bigota chính thức
+      - name: Cào dữ liệu và chuyển đổi sang URL Aliyun Tốc Độ Cao
         id: scraper
         run: |
           python - <<EOF
@@ -41,7 +41,6 @@ jobs:
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
           }
           
-          # Bước 1: Truy cập trang tổng hợp của model Myron
           base_url = "https://hyperosroms.com"
           model_url = f"{base_url}/model/myron"
           
@@ -52,8 +51,6 @@ jobs:
               exit(1)
               
           soup = BeautifulSoup(res.text, 'html.parser')
-          
-          # Tìm tất cả các hàng trong bảng danh sách ROM
           rows = soup.find_all('tr')
           sub_page_url = ""
           rom_type_input = "${{ github.event.inputs.rom_type }}".strip().lower()
@@ -61,30 +58,23 @@ jobs:
           for row in rows:
               cells = row.find_all('td')
               if len(cells) >= 5:
-                  # Cấu trúc cột: 0: Version, 1: Region, 2: ROM Type, 3: Branch/Status
-                  version_text = cells[0].get_text(strip=True)
                   region_text = cells[1].get_text(strip=True)
                   type_text = cells[2].get_text(strip=True).lower()
                   
-                  # Lọc hàng có vùng China và đúng loại ROM (recovery/fastboot)
                   if region_text == "China" and type_text == rom_type_input:
-                      # Lấy link chi tiết ở cột Version hoặc nút Download cuối hàng
                       link_tag = cells[0].find('a') or cells[-1].find('a')
                       if link_tag and 'href' in link_tag.attrs:
                           sub_page_url = base_url + link_tag['href'] if link_tag['href'].startswith('/') else link_tag['href']
-                          print(f"Tìm thấy trang chi tiết của phiên bản {version_text}: {sub_page_url}")
                           break
 
           if not sub_page_url:
               print("Không tìm thấy phiên bản phù hợp cho vùng China.")
               exit(1)
 
-          # Bước 2: Truy cập vào trang chi tiết phiên bản để bóc tách Package Name
           print(f"Đang quét trang chi tiết: {sub_page_url}")
           res_sub = requests.get(sub_page_url, headers=headers, timeout=15)
           soup_sub = BeautifulSoup(res_sub.text, 'html.parser')
           
-          # Tìm kiếm thông tin Package Name trong văn bản hoặc danh sách thuộc tính
           package_name = ""
           for li in soup_sub.find_all(['li', 'p']):
               text = li.get_text()
@@ -92,7 +82,6 @@ jobs:
                   package_name = text.split("Package Name:")[-1].strip()
                   break
                   
-          # Phương án dự phòng nếu giao diện thay đổi cấu trúc hiển thị text
           if not package_name:
               match = re.search(r'([\w-]+\.zip|[\w-]+\.tgz)', res_sub.text)
               if match:
@@ -102,28 +91,28 @@ jobs:
               print("Không thể trích xuất Package Name từ trang chi tiết.")
               exit(1)
 
-          # Bước 3: Kiểm tra định dạng và tạo Link tải Bigota chuẩn xác
           version_code = sub_page_url.split('/')[-1]
-          final_download_url = f"https://bigota.d.miui.com/{version_code}/{package_name}"
           
-          print(f"[THÀNH CÔNG] Link tải tự động hoàn toàn: {final_download_url}")
+          # Chuyển cấu trúc đường dẫn sang server Aliyun OSS Singapore tốc độ cao thay vì Bigota
+          final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
           
-          # Ghi link vào môi trường GitHub Action
+          print(f"[THÀNH CÔNG] Sinh link tốc độ cao: {final_download_url}")
+          
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f"DOWNLOAD_URL={final_download_url}\n")
               f.write(f"ROM_VERSION={version_code}\n")
           EOF
 
-      - name: Thực hiện tải gói ROM chính thức
+      - name: Thực hiện tải gói ROM tốc độ cao
         run: |
           echo "Bắt đầu tải phiên bản: ${{ env.ROM_VERSION }}"
-          echo "Đường dẫn tải: ${{ env.DOWNLOAD_URL }}"
+          echo "Đường dẫn Aliyun: ${{ env.DOWNLOAD_URL }}"
           
-          # Tích hợp mã bảo mật cá nhân
+          # Tích hợp mã băm bảo mật
           SECRET_HASH="${{ secrets.MY_KSU_HASH }}"
           
-          # Chạy curl tải file về máy ảo
+          # Tiến hành tải bằng curl
           curl -L -O "${{ env.DOWNLOAD_URL }}"
           
-          echo "Quá trình tải hoàn tất!"
+          echo "Hoàn thành quá trình tải tệp!"
           ls -lh
