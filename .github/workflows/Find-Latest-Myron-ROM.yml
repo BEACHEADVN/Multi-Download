@@ -1,10 +1,10 @@
-name: Tải ROM HyperOS China - Thiết bị Myron
+name: Tự động lấy link ROM HyperOS China (Myron)
 
 on:
   workflow_dispatch:
     inputs:
       rom_type:
-        description: 'Chọn loại ROM để tải (recovery hoặc fastboot)'
+        description: 'Chọn loại ROM để lấy link (recovery hoặc fastboot)'
         required: true
         default: 'recovery'
         type: choice
@@ -13,44 +13,74 @@ on:
           - fastboot
 
 jobs:
-  download-and-process:
+  get-real-link:
     runs-on: ubuntu-latest
 
     steps:
       - name: Kiểm tra mã nguồn
         uses: actions/checkout@v4
 
-      - name: Thiết lập biến môi trường và liên kết tải xuống
-        run: |
-          DEVICE="myron"
-          TYPE="${{ github.event.inputs.rom_type }}"
-          
-          if [ "$TYPE" = "recovery" ]; then
-            VERSION="OS3.0.306.0.WPMCNXM"
-            # Link Recovery ROM ổn định mới nhất
-            DOWNLOAD_URL="https://bigota.d.miui.com/OS3.0.306.0.WPMCNXM/miui_MYRON_OS3.0.306.0.WPMCNXM_8992a6c11a_16.0.zip"
-          else
-            VERSION="OS3.0.303.0.WPMCNXM"
-            # Link Fastboot ROM ổn định mới nhất
-            DOWNLOAD_URL="https://bigota.d.miui.com/OS3.0.303.0.WPMCNXM/myron_images_OS3.0.303.0.WPMCNXM_20260308.0000.00_16.0_cn_ca2cfb5ada.tgz"
-          fi
-          
-          echo "ROM_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "ROM_URL=$DOWNLOAD_URL" >> $GITHUB_ENV
-          echo "Đang chuẩn bị tải phiên bản $VERSION ($TYPE)..."
+      - name: Thiết lập môi trường Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-      - name: Tiến hành tải gói ROM trực tiếp từ máy chủ Xiaomi
+      - name: Cài đặt thư viện cần thiết
+        run: pip install requests
+
+      - name: Tìm kiếm Link tải thực tế từ HyperOS ROMs API
+        id: fetch_link
         run: |
-          echo "Đang tải xuống từ liên kết: ${{ env.ROM_URL }}"
-          # Sử dụng mã băm bảo mật GitHub Secret đã lưu cấu hình trước đó
+          python - <<EOF
+          import requests
+          import json
+          import os
+
+          # Gọi API của hyperosroms cho model myron
+          url = "https://data.hyperosroms.com/model/myron.json"
+          response = requests.get(url)
+          
+          if response.status_size == 0 or response.status_code != 200:
+              # Nếu API json không hoạt động, thử gọi api thay thế hoặc báo lỗi
+              print("Không thể kết nối đến API dữ liệu Rom.")
+              exit(1)
+              
+          data = response.json()
+          
+          rom_type_input = "${{ github.event.inputs.rom_type }}"
+          target_link = ""
+          target_version = ""
+
+          # Lọc các bản ghi thuộc region China (CN) và đúng Rom Type yêu cầu
+          for rom in data:
+              # Kiểm tra khu vực là China và đúng loại ROM cần tìm (recovery/fastboot)
+              if rom.get("region") == "China" and rom.get("rom_type") == rom_type_input:
+                  target_link = rom.get("link")
+                  target_version = rom.get("version")
+                  break # Vì danh sách trả về thường xếp từ mới nhất đến cũ hơn
+
+          if target_link:
+              print(f"Tìm thấy phiên bản mới nhất: {target_version}")
+              print(f"Link tải chính xác: {target_link}")
+              # Ghi vào GitHub Environment để bước sau sử dụng
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write(f"REAL_DOWNLOAD_URL={target_link}\n")
+                  f.write(f"ROM_VERSION={target_version}\n")
+          else:
+              print("Không tìm thấy link phù hợp cho vùng China.")
+              exit(1)
+          EOF
+
+      - name: Tiến hành tải gói ROM chính thức bằng Link vừa tìm được
+        run: |
+          echo "Bắt đầu tải phiên bản: ${{ env.ROM_VERSION }}"
+          echo "Từ đường dẫn trực tiếp: ${{ env.REAL_DOWNLOAD_URL }}"
+          
+          # Sử dụng mã băm bảo mật GitHub Secret
           SECRET_HASH="${{ secrets.MY_KSU_HASH }}"
           
-          # Thực hiện lệnh tải file (Tự động lưu file dựa trên định dạng của link gốc)
-          curl -L -O "${{ env.ROM_URL }}"
+          # Thực hiện lệnh curl tải file thật về máy ảo GitHub
+          curl -L -O "${{ env.REAL_DOWNLOAD_URL }}"
           
-          echo "Quá trình tải xuống phiên bản ${{ env.ROM_VERSION }} thành công."
-
-      - name: Xác thực tệp và xử lý gói cấu trúc
-        run: |
+          echo "Hoàn thành tải file cho thiết bị Myron."
           ls -lh
-          # Thêm các câu lệnh giải nén hoặc xử lý boot.img/init_boot.img tùy theo nhu cầu KernelSU tại đây
