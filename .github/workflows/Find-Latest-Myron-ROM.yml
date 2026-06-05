@@ -1,11 +1,18 @@
-name: Tự động tải song song ROM China & EEA Recovery
+name: Tự động tải ROM HyperOS dạng Matrix Song Song
 
 on:
   workflow_dispatch:
 
 jobs:
-  download-both-regions:
+  fetch-and-download:
+    name: Tải ROM ${{ matrix.region }} (Recovery)
     runs-on: ubuntu-latest
+    
+    # Định nghĩa ma trận chạy song song cho 2 vùng China và EEA
+    strategy:
+      matrix:
+        region: [China, EEA]
+      fail-fast: false # Giúp luồng này không bị dừng nếu luồng kia gặp sự cố
 
     steps:
       - name: Kiểm tra mã nguồn
@@ -21,10 +28,10 @@ jobs:
 
       - name: Dọn dẹp tệp tin trạng thái cũ
         run: |
-          # Xóa sạch các file text cũ/rác nếu có trước khi tải để tránh lẫn lộn
+          # Xóa sạch các file text rác nếu có trước khi tải
           rm -f *_state.txt *.txt
 
-      - name: Cào dữ liệu và phân tích URL Aliyun cho cả China và EEA
+      - name: Cào dữ liệu và phân tích URL Aliyun Tốc Độ Cao
         id: scraper
         run: |
           python - <<EOF
@@ -40,7 +47,13 @@ jobs:
           base_url = "https://hyperosroms.com"
           model_url = f"{base_url}/model/myron"
           
+          # Lấy thông tin khu vực từ Matrix của GitHub Action
+          target_region = "${{ matrix.region }}"
+          target_type = "recovery"
+          
           print(f"Đang quét trang tổng hợp: {model_url}")
+          print(f"Mục tiêu luồng matrix hiện tại: Region=[{target_region}], Type=[{target_type}]")
+          
           res = requests.get(model_url, headers=headers, timeout=15)
           if res.status_code != 200:
               print("Không thể truy cập trang chủ model Myron")
@@ -48,85 +61,67 @@ jobs:
               
           soup = BeautifulSoup(res.text, 'html.parser')
           rows = soup.find_all('tr')
-          
-          # Định nghĩa các mục tiêu cần tìm (Chỉ tìm dạng recovery)
-          targets = {"China": "", "EEA": ""}
-          
-          # Bước 1: Tìm link trang chi tiết của cả 2 vùng
+          sub_page_url = ""
+
           for row in rows:
               cells = row.find_all('td')
               if len(cells) >= 5:
                   region_text = cells[1].get_text(strip=True)
                   type_text = cells[2].get_text(strip=True).lower()
                   
-                  if type_text == "recovery" and region_text in targets and not targets[region_text]:
+                  # Khớp chính xác vùng (China hoặc EEA) từ matrix
+                  if region_text == target_region and type_text == target_type:
                       link_tag = cells[0].find('a') or cells[-1].find('a')
                       if link_tag and 'href' in link_tag.attrs:
-                          sub_url = base_url + link_tag['href'] if link_tag['href'].startswith('/') else link_tag['href']
-                          targets[region_text] = sub_url
-                          print(f"Tìm thấy trang chi tiết [{region_text} Recovery]: {sub_url}")
-              
-              # Dừng vòng lặp sớm nếu đã tìm đủ cả 2 vùng
-              if targets["China"] and targets["EEA"]:
+                          sub_page_url = base_url + link_tag['href'] if link_tag['href'].startswith('/') else link_tag['href']
+                          break
+
+          if not sub_page_url:
+              print(f"Không tìm thấy phiên bản phù hợp cho vùng {target_region}.")
+              exit(1)
+
+          print(f"Đang quét trang chi tiết: {sub_page_url}")
+          res_sub = requests.get(sub_page_url, headers=headers, timeout=15)
+          soup_sub = BeautifulSoup(res_sub.text, 'html.parser')
+          
+          package_name = ""
+          for li in soup_sub.find_all(['li', 'p']):
+              text = li.get_text()
+              if "Package Name:" in text:
+                  package_name = text.split("Package Name:")[-1].strip()
                   break
-
-          # Bước 2: Truy cập từng trang chi tiết để bóc tách tên gói cài đặt (Package Name)
-          download_urls = {}
-          for region, sub_page_url in targets.items():
-              if not sub_page_url:
-                  print(f"Lỗi: Không tìm thấy bản ROM Recovery phù hợp cho vùng {region}")
-                  exit(1)
                   
-              print(f"Đang phân tích cấu trúc trang chi tiết vùng [{region}]: {sub_page_url}")
-              res_sub = requests.get(sub_page_url, headers=headers, timeout=15)
-              soup_sub = BeautifulSoup(res_sub.text, 'html.parser')
-              
-              package_name = ""
-              for li in soup_sub.find_all(['li', 'p']):
-                  text = li.get_text()
-                  if "Package Name:" in text:
-                      package_name = text.split("Package Name:")[-1].strip()
-                      break
-                      
-              if not package_name:
-                  match = re.search(r'([\w-]+\.zip)', res_sub.text)
-                  if match:
-                      package_name = match.group(1)
+          if not package_name:
+              match = re.search(r'([\w-]+\.zip)', res_sub.text)
+              if match:
+                  package_name = match.group(1)
 
-              if not package_name:
-                  print(f"Không thể trích xuất Package Name cho vùng {region}.")
-                  exit(1)
+          if not package_name:
+              print("Không thể trích xuất Package Name từ trang chi tiết.")
+              exit(1)
 
-              version_code = sub_page_url.split('/')[-1]
-              # Ghép chuỗi tạo link máy chủ đám mây Aliyun Singapore tốc độ cao
-              high_speed_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
-              download_urls[region] = high_speed_url
-              print(f"-> Khởi tạo URL Aliyun [{region}]: {high_speed_url}")
-
-          # Ghi các đường dẫn tìm được vào môi trường hệ thống GitHub Action
+          version_code = sub_page_url.split('/')[-1]
+          
+          # Ghép chuỗi tạo link máy chủ Aliyun Singapore tốc độ cao
+          final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
+          
+          print(f"[THÀNH CÔNG] Sinh link tốc độ cao: {final_download_url}")
+          
           with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f"URL_CHINA={download_urls['China']}\n")
-              f.write(f"URL_EEA={download_urls['EEA']}\n")
+              f.write(f"DOWNLOAD_URL={final_download_url}\n")
+              f.write(f"ROM_VERSION={version_code}\n")
           EOF
 
-      - name: Tiến hành tải đồng thời cả 2 gói ROM Recovery tốc độ cao
+      - name: Thực hiện tải gói ROM chính thức
         run: |
-          echo "Bắt đầu tải xuống luồng ROM song song..."
+          echo "Luồng ${{ matrix.region }} đang tải phiên bản: ${{ env.ROM_VERSION }}"
+          echo "Đường dẫn tải tốc độ cao: ${{ env.DOWNLOAD_URL }}"
           
-          # Tích hợp mã bảo mật cá nhân
+          # Tích hợp mã bảo mật cá nhân của bạn
           SECRET_HASH="${{ secrets.MY_KSU_HASH }}"
           
-          echo "Đang tải bản China Recovery từ: ${{ env.URL_CHINA }}"
-          curl -L -O "${{ env.URL_CHINA }}" &
-          PID_CHINA=$!
+          # Tiến hành tải bằng curl độc lập trên máy ảo này
+          curl -L -O "${{ env.DOWNLOAD_URL }}"
           
-          echo "Đang tải bản EEA Recovery từ: ${{ env.URL_EEA }}"
-          curl -L -O "${{ env.URL_EEA }}" &
-          PID_EEA=$!
-          
-          echo "Đang chờ cả 2 tiến trình tải hoàn tất..."
-          wait $PID_CHINA
-          wait $PID_EEA
-          
-          echo "Hoàn thành quá trình tải toàn bộ tệp ROM!"
+          echo "Hoàn thành quá trình tải tệp của luồng ${{ matrix.region }}!"
           ls -lh
