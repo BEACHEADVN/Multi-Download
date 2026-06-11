@@ -24,7 +24,7 @@ jobs:
       # ===== TIẾN HÀNH TẢI ROM TRỰC TIẾP TỪ PIXELDRAIN =====
       - name: Download ROM from Pixeldrain
         run: |
-          URL="https://pixeldrain.com/u/cmhSDVRw?download"
+          URL="https://pixeldrain.com/api/file/Trg8NGZv?download"
           echo "📥 Đang tải file từ Pixeldrain..."
           
           # Tải xuống và đặt tên cố định là eu_baserom.zip cho dễ xử lý ở bước sau
