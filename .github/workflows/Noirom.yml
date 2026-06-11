@@ -1,0 +1,92 @@
+name: XiaomiEU ROM Downloader (Tải & Giải nén)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: MYRON
+            title: Myron
+          - device: SOCRATES
+            title: Socrates
+
+    steps:
+      - name: Checkout mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Cài đặt công cụ (aria2 & unzip)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 curl unzip
+
+      # ===== CÀO LẤY LINK VÀ TÊN FILE ROM MỚI NHẤT =====
+      - name: Get Latest ROM URL
+        id: rom
+        run: |
+          BASE_URL="https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/"
+          HTML=$(curl -sL "$BASE_URL")
+
+          # Tìm tên file ZIP mới nhất khớp với mã thiết bị trong matrix
+          FILE=$(echo "$HTML" | grep -o "xiaomi.eu_${{ matrix.device }}_OS3[^\"]*zip" | sort -V | tail -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "❌ Không tìm thấy bản ROM nào phù hợp cho ${{ matrix.device }}!"
+            exit 1
+          fi
+
+          URL="https://downloads.sourceforge.net/project/xiaomi-eu-multilang-miui-roms/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/$FILE"
+
+          echo "🔍 Tìm thấy file: $FILE"
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      # ===== TIẾN HÀNH TẢI ROM VỀ MÁY ẢO GITHUB =====
+      - name: Download ROM via aria2c
+        run: |
+          echo "📥 Đang tải file: ${{ steps.rom.outputs.file }}"
+          
+          aria2c \
+            -x 16 \
+            -s 16 \
+            -k 1M \
+            --continue=true \
+            -o "${{ steps.rom.outputs.file }}" \
+            "${{ steps.rom.outputs.url }}"
+            
+          echo "✅ Tải thành công! Chi tiết file trên đĩa:"
+          ls -lh "${{ steps.rom.outputs.file }}"
+
+      # ===== GIẢI NÉN VÀ HIỂN THỊ CẤU TRÚC THƯ MỤC =====
+      - name: Extract ROM & List Directories
+        run: |
+          ROM_ZIP="${{ steps.rom.outputs.file }}"
+          EXTRACT_DIR="extracted_rom"
+          
+          echo "📂 Đang giải nén file $ROM_ZIP vào thư mục $EXTRACT_DIR..."
+          mkdir -p "$EXTRACT_DIR"
+          
+          # Giải nén file zip vào thư mục đích
+          unzip -q "$ROM_ZIP" -d "$EXTRACT_DIR"
+          echo "✅ Giải nén hoàn tất!"
+          
+          # Xóa file zip gốc ngay lập tức để tránh hết dung lượng lưu trữ trên GitHub Actions
+          rm -f "$ROM_ZIP"
+          echo "🧹 Đã xóa file ZIP gốc để giải phóng đĩa."
+          
+          echo "=========================================="
+          echo "       THÔNG TIN THƯ MỤC SAU KHI GIẢI NÉN  "
+          echo "=========================================="
+          # Hiển thị danh sách file và thư mục con một cách chi tiết
+          cd "$EXTRACT_DIR"
+          ls -R
