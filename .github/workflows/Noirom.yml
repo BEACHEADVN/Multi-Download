@@ -1,4 +1,4 @@
-name: XiaomiEU ROM Downloader (Tải & Giải nén)
+name: Nối rom EU
 
 on:
   workflow_dispatch:
