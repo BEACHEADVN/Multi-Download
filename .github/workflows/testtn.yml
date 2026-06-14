@@ -82,7 +82,7 @@ jobs:
           node get_rom.js
 
       # ===== BUILD FILE NAME =====
-      - name: Prepare file name
+      - name: Download and Prepare file name
         run: |
           URL=$(cat rom_url.txt)
           NAME=$(cat rom_name.txt)
