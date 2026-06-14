@@ -10,18 +10,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ===== NODE =====
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # ===== INSTALL PLAYWRIGHT =====
+      # ===== PLAYWRIGHT =====
       - name: Install Playwright
         run: |
           npm init -y
           npm install playwright
           npx playwright install --with-deps chromium
 
-      # ===== GET ROM URL =====
+      # ===== GET ROM INFO (NAME + LINK) =====
       - name: Get latest MYRON ROM
         run: |
           cat > get_rom.js << 'EOF'
@@ -42,18 +43,29 @@ jobs:
 
             await page.waitForLoadState('networkidle');
 
-            const links = await page.$$eval('a', els =>
-              els.map(a => a.href)
-                .filter(h => h.includes('hypertn.koyeb.app/d/ROM'))
-            );
+            const data = await page.$$eval('.card', cards => {
+              return cards
+                .filter(c => c.innerText.includes('MYRON'))
+                .map(c => {
+                  const name = c.innerText.split('\n')[0].trim();
 
-            links.sort((a, b) => {
-              const da = (a.match(/_(\d{8})\.7z$/) || [,'0'])[1];
-              const db = (b.match(/_(\d{8})\.7z$/) || [,'0'])[1];
+                  const link = Array.from(c.querySelectorAll('a'))
+                    .map(a => a.href)
+                    .find(h => h.includes('hypertn.koyeb.app/d/ROM'));
+
+                  return { name, link };
+                })
+                .filter(x => x.link);
+            });
+
+            data.sort((a, b) => {
+              const da = (a.link.match(/_(\d{8})\.7z$/) || [,'0'])[1];
+              const db = (b.link.match(/_(\d{8})\.7z$/) || [,'0'])[1];
               return db.localeCompare(da);
             });
 
-            fs.writeFileSync('rom_url.txt', links[0] || '');
+            fs.writeFileSync('rom_url.txt', data[0].link);
+            fs.writeFileSync('rom_name.txt', data[0].name);
 
             await browser.close();
           })();
@@ -61,19 +73,19 @@ jobs:
 
           node get_rom.js
 
-      # ===== DOWNLOAD ROM =====
-      - name: Download ROM
+      # ===== BUILD FILE NAME =====
+      - name: Prepare file name
         run: |
           URL=$(cat rom_url.txt)
+          NAME=$(cat rom_name.txt)
 
-          if [ -z "$URL" ]; then
-            echo "No URL found"
-            exit 1
-          fi
+          FILE="${NAME}.7z"
 
-          wget -O rom.7z "$URL"
+          echo "FILE=$FILE" >> $GITHUB_ENV
 
-      # ===== INSTALL 7ZIP =====
+          wget -O "$FILE" "$URL"
+
+      # ===== INSTALL TOOLS =====
       - name: Install 7zip
         run: |
           sudo apt-get update
@@ -83,9 +95,7 @@ jobs:
       - name: Check file
         id: check
         run: |
-          FILE="rom.7z"
-
-          if [ ! -f "$FILE" ]; then
+          if [ ! -f "${{ env.FILE }}" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -96,7 +106,7 @@ jobs:
         id: split
         if: steps.check.outputs.skip != 'true'
         run: |
-          FILE="rom.7z"
+          FILE="${{ env.FILE }}"
 
           SIZE=$(stat -c%s "$FILE")
           LIMIT=$((9 * 1024 * 1024 * 1024))
@@ -110,14 +120,14 @@ jobs:
             echo "split=false" >> $GITHUB_OUTPUT
           fi
 
-      # ===== UPLOAD PIXELDRAIN =====
+      # ===== PIXELDRAIN UPLOAD =====
       - name: Upload to Pixeldrain
         id: pd
         if: steps.check.outputs.skip != 'true'
         env:
           PD_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
         run: |
-          FILE="rom.7z"
+          FILE="${{ env.FILE }}"
 
           if [ "${{ steps.split.outputs.split }}" = "true" ]; then
 
@@ -143,7 +153,6 @@ jobs:
             IDS=${IDS#,}
             echo "ids=$IDS" >> $GITHUB_OUTPUT
 
-            # link chỉ lấy part đầu
             FIRST_ID=$(echo "$IDS" | cut -d',' -f1)
             echo "link=https://pixeldrain.com/u/$FIRST_ID" >> $GITHUB_OUTPUT
 
@@ -164,14 +173,14 @@ jobs:
             echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
           fi
 
-      # ===== TELEGRAM NOTIFY =====
+      # ===== TELEGRAM =====
       - name: Telegram Notify
         if: steps.check.outputs.skip != 'true'
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          FILE="rom.7z"
+          FILE="${{ env.FILE }}"
           LINK="${{ steps.pd.outputs.link }}"
 
           TEXT="<b>🚀 HyperTN MYRON ROM Uploaded!</b>%0A%0A📦 <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
@@ -189,7 +198,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          FILE="rom.7z"
+          FILE="${{ env.FILE }}"
           IDS="${{ steps.pd.outputs.ids }}"
 
           for i in {1..10}; do
