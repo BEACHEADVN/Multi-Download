@@ -28,45 +28,53 @@ jobs:
           cat > get_rom.js << 'EOF'
           const { chromium } = require('playwright');
           const fs = require('fs');
-
+          
           (async () => {
             const browser = await chromium.launch({ headless: true });
             const page = await browser.newPage();
-
+          
             await page.goto('https://www.hypertn.io.vn/download', {
               waitUntil: 'networkidle'
             });
-
+          
+            // click MYRON
             await page.locator('.card').filter({
               hasText: 'MYRON'
-            }).click();
-
-            await page.waitForLoadState('networkidle');
-
-            const data = await page.$$eval('.card', cards => {
-              return cards
-                .filter(c => c.innerText.includes('MYRON'))
-                .map(c => {
-                  const name = c.innerText.split('\n')[0].trim();
-
-                  const link = Array.from(c.querySelectorAll('a'))
-                    .map(a => a.href)
-                    .find(h => h.includes('hypertn.koyeb.app/d/ROM'));
-
-                  return { name, link };
-                })
-                .filter(x => x.link);
+            }).first().click();
+          
+            await page.waitForTimeout(5000);
+          
+            // lấy tất cả link ROM
+            const links = await page.evaluate(() => {
+              return Array.from(document.querySelectorAll('a'))
+                .map(a => a.href)
+                .filter(h => h && h.includes('hypertn.koyeb.app/d/ROM'));
             });
-
-            data.sort((a, b) => {
-              const da = (a.link.match(/_(\d{8})\.7z$/) || [,'0'])[1];
-              const db = (b.link.match(/_(\d{8})\.7z$/) || [,'0'])[1];
+          
+            if (!links || links.length === 0) {
+              console.log("No ROM links found");
+              await browser.close();
+              process.exit(1);
+            }
+          
+            // sort theo ngày
+            links.sort((a, b) => {
+              const da = (a.match(/_(\d{8})\.7z$/) || ['','0'])[1];
+              const db = (b.match(/_(\d{8})\.7z$/) || ['','0'])[1];
               return db.localeCompare(da);
             });
-
-            fs.writeFileSync('rom_url.txt', data[0].link);
-            fs.writeFileSync('rom_name.txt', data[0].name);
-
+          
+            const url = links[0];
+          
+            // fallback name từ URL (an toàn 100%)
+            let name = url.split('/').pop().replace('.7z', '');
+          
+            fs.writeFileSync('rom_url.txt', url);
+            fs.writeFileSync('rom_name.txt', name);
+          
+            console.log("Selected:", name);
+            console.log("URL:", url);
+          
             await browser.close();
           })();
           EOF
