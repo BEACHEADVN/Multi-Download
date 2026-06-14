@@ -1,0 +1,77 @@
+name: HyperTN Downloader
+
+on:
+workflow_dispatch:
+
+jobs:
+download:
+runs-on: ubuntu-latest
+
+```
+steps:
+  - uses: actions/checkout@v4
+
+  - uses: actions/setup-node@v4
+    with:
+      node-version: 22
+
+  - name: Install Playwright
+    run: |
+      npm init -y
+      npm install playwright
+      npx playwright install --with-deps chromium
+
+  - name: Get latest MYRON ROM
+    run: |
+      cat > get_rom.js << 'EOF'
+      const { chromium } = require('playwright');
+
+      (async () => {
+        const browser = await chromium.launch({ headless: true });
+        const page = await browser.newPage();
+
+        await page.goto('https://www.hypertn.io.vn/download', {
+          waitUntil: 'networkidle'
+        });
+
+        await page.locator('.card').filter({
+          hasText: 'MYRON'
+        }).click();
+
+        await page.waitForLoadState('networkidle');
+
+        const links = await page.$$eval('a', els =>
+          els.map(a => a.href)
+            .filter(h => h.includes('hypertn.koyeb.app/d/ROM'))
+        );
+
+        await browser.close();
+
+        links.sort((a, b) => {
+          const da = (a.match(/_(\d{8})\.7z$/) || [,'0'])[1];
+          const db = (b.match(/_(\d{8})\.7z$/) || [,'0'])[1];
+          return db.localeCompare(da);
+        });
+
+        console.log('Latest ROM:', links[0]);
+        require('fs').writeFileSync('rom_url.txt', links[0]);
+      })();
+      EOF
+
+      node get_rom.js
+
+  - name: Download ROM
+    run: |
+      URL=$(cat rom_url.txt)
+      echo "$URL"
+      wget -O rom.7z "$URL"
+
+  - name: Verify
+    run: |
+      ls -lh rom.7z
+
+  - uses: actions/upload-artifact@v4
+    with:
+      name: HyperTN-Myron-ROM
+      path: rom.7z
+```
