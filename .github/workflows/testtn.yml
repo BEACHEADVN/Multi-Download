@@ -22,84 +22,74 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      # ===== GET ROM INFO (NAME + LINK) =====
+      # ===== GET ROM INFO =====
       - name: Get latest MYRON ROM
         run: |
           cat > get_rom.js << 'EOF'
           const { chromium } = require('playwright');
           const fs = require('fs');
-          
+
           (async () => {
             const browser = await chromium.launch({ headless: true });
             const page = await browser.newPage();
-          
+
             await page.goto('https://www.hypertn.io.vn/download', {
               waitUntil: 'networkidle'
             });
-          
-            // click MYRON
+
             await page.locator('.card').filter({
               hasText: 'MYRON'
             }).first().click();
-          
+
             await page.waitForTimeout(5000);
-          
-            // lấy tất cả link ROM
+
             const links = await page.evaluate(() => {
               return Array.from(document.querySelectorAll('a'))
                 .map(a => a.href)
                 .filter(h => h && h.includes('hypertn.koyeb.app/d/ROM'));
             });
-          
-            if (!links || links.length === 0) {
-              console.log("No ROM links found");
-              await browser.close();
+
+            if (!links.length) {
+              console.log("No links found");
               process.exit(1);
             }
-          
-            // sort theo ngày
+
             links.sort((a, b) => {
               const da = (a.match(/_(\d{8})\.7z$/) || ['','0'])[1];
               const db = (b.match(/_(\d{8})\.7z$/) || ['','0'])[1];
               return db.localeCompare(da);
             });
-          
+
             const url = links[0];
-          
-            // fallback name từ URL (an toàn 100%)
-            let name = url.split('/').pop().replace('.7z', '');
-          
+            const name = url.split('/').pop().replace('.7z', '');
+
             fs.writeFileSync('rom_url.txt', url);
             fs.writeFileSync('rom_name.txt', name);
-          
-            console.log("Selected:", name);
-            console.log("URL:", url);
-          
+
             await browser.close();
           })();
           EOF
 
           node get_rom.js
 
-      # ===== BUILD FILE NAME =====
-      - name: Download and Prepare file name
+      # ===== DOWNLOAD =====
+      - name: Download ROM
         run: |
           URL=$(cat rom_url.txt)
           NAME=$(cat rom_name.txt)
 
           FILE="${NAME}.7z"
-
           echo "FILE=$FILE" >> $GITHUB_ENV
 
           wget -O "$FILE" "$URL"
 
-      # ===== INSTALL TOOLS =====
-      - name: Install 7zip
+      # ===== TOOLS =====
+      - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y p7zip-full jq curl
 
-      # ===== CHECK FILE =====
+      # ===== CHECK =====
       - name: Check file
         id: check
         run: |
@@ -109,7 +99,7 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      # ===== SPLIT LARGE FILE =====
+      # ===== SPLIT =====
       - name: Split Large File
         id: split
         if: steps.check.outputs.skip != 'true'
@@ -120,8 +110,6 @@ jobs:
           LIMIT=$((9 * 1024 * 1024 * 1024))
 
           if [ "$SIZE" -gt "$LIMIT" ]; then
-            echo "File > 9GB, splitting..."
-
             7z a -t7z -mx=0 -v9g "${FILE}.7z" "$FILE"
             echo "split=true" >> $GITHUB_OUTPUT
           else
@@ -137,51 +125,16 @@ jobs:
         run: |
           FILE="${{ env.FILE }}"
 
-          if [ "${{ steps.split.outputs.split }}" = "true" ]; then
+          RESPONSE=$(curl -s -u ":$PD_API_KEY" \
+            -F "file=@${FILE}" \
+            https://pixeldrain.com/api/file)
 
-            IDS=""
+          ID=$(echo "$RESPONSE" | jq -r '.id')
 
-            for PART in *.7z.*; do
-              echo "Uploading $PART"
+          echo "ids=$ID" >> $GITHUB_OUTPUT
+          echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
 
-              RESPONSE=$(curl -s -u ":$PD_API_KEY" \
-                -F "file=@${PART}" \
-                https://pixeldrain.com/api/file)
-
-              ID=$(echo "$RESPONSE" | jq -r '.id')
-
-              if [ "$ID" = "null" ] || [ -z "$ID" ]; then
-                echo "$RESPONSE"
-                exit 1
-              fi
-
-              IDS="${IDS},$ID"
-            done
-
-            IDS=${IDS#,}
-            echo "ids=$IDS" >> $GITHUB_OUTPUT
-
-            FIRST_ID=$(echo "$IDS" | cut -d',' -f1)
-            echo "link=https://pixeldrain.com/u/$FIRST_ID" >> $GITHUB_OUTPUT
-
-          else
-
-            RESPONSE=$(curl -s -u ":$PD_API_KEY" \
-              -F "file=@${FILE}" \
-              https://pixeldrain.com/api/file)
-
-            ID=$(echo "$RESPONSE" | jq -r '.id')
-
-            if [ "$ID" = "null" ] || [ -z "$ID" ]; then
-              echo "$RESPONSE"
-              exit 1
-            fi
-
-            echo "ids=$ID" >> $GITHUB_OUTPUT
-            echo "link=https://pixeldrain.com/u/$ID" >> $GITHUB_OUTPUT
-          fi
-
-      # ===== TELEGRAM =====
+      # ===== TELEGRAM (2 LINKS) =====
       - name: Telegram Notify
         if: steps.check.outputs.skip != 'true'
         env:
@@ -189,9 +142,10 @@ jobs:
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           FILE="${{ env.FILE }}"
-          LINK="${{ steps.pd.outputs.link }}"
+          HYPERTN=$(cat rom_url.txt)
+          PIXEL="${{ steps.pd.outputs.link }}"
 
-          TEXT="<b>🚀 HyperTN MYRON ROM Uploaded!</b>%0A%0A📦 <code>$FILE</code>%0A🔗 <a href=\"$LINK\">Download</a>"
+          TEXT="<b>🚀 HyperTN MYRON ROM</b>%0A%0A📦 <code>$FILE</code>%0A%0A🔗 <b>Direct:</b> <a href=\"$HYPERTN\">HyperTN Link</a>%0A💾 <b>Mirror:</b> <a href=\"$PIXEL\">Pixeldrain</a>"
 
           curl -s -X POST \
             "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
@@ -217,14 +171,10 @@ jobs:
             sed -i "\|^$FILE|d" rom_uploaded.txt
             echo "$FILE|$IDS" >> rom_uploaded.txt
 
-            sort -u rom_uploaded.txt -o rom_uploaded.txt
-
             git add rom_uploaded.txt
             git commit -m "Update MYRON: $FILE" || true
 
-            if git push origin main; then
-              exit 0
-            fi
+            git push origin main && exit 0
 
             sleep 3
           done
