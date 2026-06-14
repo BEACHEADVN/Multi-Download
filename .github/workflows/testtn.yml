@@ -167,24 +167,31 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
+      
           FILE="${{ env.FILE }}"
           IDS="${{ steps.pd.outputs.ids }}"
-
+      
           for i in {1..10}; do
             git fetch origin main
             git reset --hard origin/main
-
+      
             touch rom_uploaded.txt
+      
+            # xóa dòng cũ của file này
             sed -i "\|^$FILE|d" rom_uploaded.txt
+      
+            # thêm dòng mới
             echo "$FILE|$IDS" >> rom_uploaded.txt
-
+      
+            # SORT THEO TÊN FILE (cột 1)
+            sort -t'|' -k1,1 rom_uploaded.txt -o rom_uploaded.txt
+      
             git add rom_uploaded.txt
             git commit -m "Update MYRON: $FILE" || true
-
+      
             git push https://x-access-token:${GITHUB_TOKEN}@github.com/BEACHEADVN/Multi-Download.git main && exit 0
-
+      
             sleep 3
           done
-
+      
           exit 1
