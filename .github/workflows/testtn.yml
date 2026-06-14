@@ -3,12 +3,18 @@ name: HyperTN Downloader
 on:
   workflow_dispatch:
 
+# ===== FIX PERMISSION 403 =====
+permissions:
+  contents: write
+
 jobs:
   download:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       # ===== NODE =====
       - uses: actions/setup-node@v4
@@ -89,7 +95,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y p7zip-full jq curl
 
-      # ===== CHECK =====
+      # ===== CHECK FILE =====
       - name: Check file
         id: check
         run: |
@@ -99,7 +105,7 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      # ===== SPLIT =====
+      # ===== SPLIT LARGE FILE =====
       - name: Split Large File
         id: split
         if: steps.check.outputs.skip != 'true'
@@ -116,7 +122,7 @@ jobs:
             echo "split=false" >> $GITHUB_OUTPUT
           fi
 
-      # ===== PIXELDRAIN UPLOAD =====
+      # ===== PIXELDRAIN BACKUP =====
       - name: Upload to Pixeldrain
         id: pd
         if: steps.check.outputs.skip != 'true'
@@ -145,7 +151,7 @@ jobs:
           HYPERTN=$(cat rom_url.txt)
           PIXEL="${{ steps.pd.outputs.link }}"
 
-          TEXT="<b>🚀 HyperTN MYRON ROM</b>%0A%0A📦 <code>$FILE</code>%0A%0A🔗 <b>Direct:</b> <a href=\"$HYPERTN\">HyperTN Link</a>%0A💾 <b>Mirror:</b> <a href=\"$PIXEL\">Pixeldrain</a>"
+          TEXT="<b>🚀 HyperTN MYRON ROM</b>%0A%0A📦 <code>$FILE</code>%0A%0A🔗 <b>HyperTN:</b> <a href=\"$HYPERTN\">Direct Download</a>%0A💾 <b>Pixeldrain:</b> <a href=\"$PIXEL\">Mirror Link</a>"
 
           curl -s -X POST \
             "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
@@ -153,9 +159,11 @@ jobs:
             -d text="$TEXT" \
             -d parse_mode="HTML"
 
-      # ===== SAVE STATE =====
+      # ===== SAVE STATE (FIXED 403) =====
       - name: Save State
         if: steps.check.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -174,7 +182,7 @@ jobs:
             git add rom_uploaded.txt
             git commit -m "Update MYRON: $FILE" || true
 
-            git push origin main && exit 0
+            git push https://x-access-token:${GITHUB_TOKEN}@github.com/BEACHEADVN/Multi-Download.git main && exit 0
 
             sleep 3
           done
