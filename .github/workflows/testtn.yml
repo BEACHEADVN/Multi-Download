@@ -2,8 +2,8 @@ name: HyperTN Downloader
 
 on:
   workflow_dispatch:
-
-# ===== FIX PERMISSION 403 =====
+  schedule:
+    - cron: "0 * * * *"
 permissions:
   contents: write
 
