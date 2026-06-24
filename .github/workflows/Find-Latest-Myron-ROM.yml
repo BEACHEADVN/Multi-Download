@@ -1,65 +1,64 @@
-name: HyperOS Scraper
+name: Test China Version
 
 on:
   workflow_dispatch:
 
 jobs:
-  fetch:
+  test:
     runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      matrix:
-        region:
-          - China
-          - EEA
-
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install deps
         run: |
-          pip install requests beautifulsoup4
+          pip install beautifulsoup4 requests
 
       - name: Download page
         run: |
           curl -L \
-            "https://miuirom.org/phones/redmi-k90-pro-max" \
+            "https://miuirom.org/phones/redmi-k90-pro-max#China" \
             -o phone_page.html
 
-      - name: Extract ROM
-        shell: bash
+      - name: Extract China Version
         run: |
-          python <<'EOF'
+          python << 'EOF'
           import re
-          import requests
           from bs4 import BeautifulSoup
-
-          REGION = "${{ matrix.region }}"
 
           with open("phone_page.html", "r", encoding="utf-8") as f:
               html = f.read()
 
-          soup = BeautifulSoup(html, "html.parser")
+          text = BeautifulSoup(html, "html.parser").get_text("\n")
 
-          keyword = "CNXM" if REGION == "China" else "EUXM"
+          print("=== DEBUG ===")
+          print("China found:", "China" in text)
+          print("Version found:", "Version" in text)
 
-          urls = []
+          m = re.search(
+              r'China(.*?)Europe',
+              text,
+              re.S
+          )
 
-          for a in soup.find_all("a", href=True):
-              href = a["href"]
+          if not m:
+              raise Exception("Không tìm thấy block China")
 
-              if keyword in href:
-                  urls.append(href)
+          china_block = m.group(1)
 
-          print("Found URLs:")
-          for u in urls:
-              print(u)
+          print("\n=== CHINA BLOCK ===")
+          print(china_block[:2000])
 
-          if not urls:
-              raise Exception(f"Không tìm thấy ROM {REGION}")
+          v = re.search(
+              r'Version\s+([^\s]+)',
+              china_block
+          )
+
+          if not v:
+              raise Exception("Không tìm thấy Version")
+
+          print("\n=== RESULT ===")
+          print(v.group(1))
           EOF
