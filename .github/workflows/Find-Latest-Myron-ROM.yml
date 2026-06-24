@@ -1,141 +1,65 @@
-name: Tự động tải ROM HyperOS dạng Matrix Song Song
+name: HyperOS Scraper
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
-fetch-and-download:
-name: Tải ROM ${{ matrix.region }}
-runs-on: ubuntu-latest
+  fetch:
+    runs-on: ubuntu-latest
 
-```
-strategy:
-  matrix:
-    region: [China, EEA]
-  fail-fast: false
+    strategy:
+      fail-fast: false
+      matrix:
+        region:
+          - China
+          - EEA
 
-steps:
-  - name: Checkout
-    uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  - name: Setup Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: "3.11"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-  - name: Install dependencies
-    run: |
-      pip install requests beautifulsoup4
+      - name: Install deps
+        run: |
+          pip install requests beautifulsoup4
 
-  - name: Download phone page
-    run: |
-      curl -L \
-        "https://miuirom.org/phones/redmi-k90-pro-max" \
-        -o phone_page.html
+      - name: Download page
+        run: |
+          curl -L \
+            "https://miuirom.org/phones/redmi-k90-pro-max" \
+            -o phone_page.html
 
-  - name: Extract latest ROM URL
-    id: scraper
-    run: |
-      python << 'EOF'
-      import os
-      import re
-      import sys
-      import requests
-      from bs4 import BeautifulSoup
+      - name: Extract ROM
+        shell: bash
+        run: |
+          python <<'EOF'
+          import re
+          import requests
+          from bs4 import BeautifulSoup
 
-      REGION = "${{ matrix.region }}"
+          REGION = "${{ matrix.region }}"
 
-      with open("phone_page.html", "r", encoding="utf-8") as f:
-          html = f.read()
+          with open("phone_page.html", "r", encoding="utf-8") as f:
+              html = f.read()
 
-      soup = BeautifulSoup(html, "html.parser")
+          soup = BeautifulSoup(html, "html.parser")
 
-      target_keyword = "CNXM" if REGION == "China" else "EUXM"
+          keyword = "CNXM" if REGION == "China" else "EUXM"
 
-      found_download_page = None
+          urls = []
 
-      for a in soup.find_all("a", href=True):
-          href = a["href"]
-
-          if target_keyword not in str(a):
-              continue
-
-          if "download" in href.lower():
-              found_download_page = href
-              break
-
-      if not found_download_page:
           for a in soup.find_all("a", href=True):
               href = a["href"]
 
-              if target_keyword in href:
-                  found_download_page = href
-                  break
+              if keyword in href:
+                  urls.append(href)
 
-      if not found_download_page:
-          print(f"[ERROR] Không tìm thấy link cho {REGION}")
-          sys.exit(1)
+          print("Found URLs:")
+          for u in urls:
+              print(u)
 
-      if found_download_page.startswith("/"):
-          found_download_page = (
-              "https://miuirom.org" + found_download_page
-          )
-
-      print("Download page:")
-      print(found_download_page)
-
-      response = requests.get(
-          found_download_page,
-          allow_redirects=True,
-          timeout=60
-      )
-
-      final_url = response.url
-
-      print("Final URL:")
-      print(final_url)
-
-      version_match = re.search(
-          r'OS([0-9.]+(?:CNXM|EUXM))',
-          final_url
-      )
-
-      version = (
-          version_match.group(1)
-          if version_match
-          else "UNKNOWN"
-      )
-
-      filename = final_url.split("/")[-1]
-
-      print(f"Version : {version}")
-      print(f"Filename: {filename}")
-
-      with open(os.environ["GITHUB_ENV"], "a") as env:
-          env.write(f"DOWNLOAD_URL={final_url}\n")
-          env.write(f"ROM_VERSION=OS{version}\n")
-          env.write(f"ROM_FILENAME={filename}\n")
-      EOF
-
-  - name: Show ROM info
-    run: |
-      echo "Version : $ROM_VERSION"
-      echo "Filename: $ROM_FILENAME"
-      echo "URL     : $DOWNLOAD_URL"
-
-  - name: Download ROM
-    run: |
-      aria2c \
-        -x16 \
-        -s16 \
-        -k1M \
-        "$DOWNLOAD_URL" \
-        -o "$ROM_FILENAME"
-
-  - name: Upload artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: ${{ matrix.region }}-${{ env.ROM_VERSION }}
-      path: ${{ env.ROM_FILENAME }}
-      retention-days: 5
-```
+          if not urls:
+              raise Exception(f"Không tìm thấy ROM {REGION}")
+          EOF
