@@ -26,7 +26,7 @@ jobs:
       - name: Cài đặt thư viện Cào dữ liệu
         run: pip install requests beautifulsoup4
 
-      - name: Lấy dữ liệu thật từ API Xiaomi Firmware Updater
+      - name: Lấy dữ liệu ROM thật từ Server OTA Xiaomi
         id: scraper
         run: |
           python - <<EOF
@@ -36,46 +36,57 @@ jobs:
 
           target_region = "${{ matrix.region }}"
           
-          # Bản China: myron, Bản EEA: myron_global (theo chuẩn đặt tên của MIUI Updates Tracker)
-          device_code = "myron" if target_region == "China" else "myron_global"
+          # Đặt mã máy (codename) cho Redmi K90 Pro Max / POCO F8 Ultra
+          device_code = "myron"
           
-          # Gọi file JSON nguyên gốc từ Github (Không bao giờ bị chặn)
-          api_url = "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/stable_recovery.json"
+          # Mã khu vực: CN cho China, EU cho EEA Global
+          region_code = "CN" if target_region == "China" else "EU"
           
-          print(f"--- Đang truy xuất dữ liệu thật cho thiết bị: {device_code} ({target_region}) ---")
+          # Cổng API check OTA chính thức của Xiaomi
+          api_url = f"https://update.miui.com/updates/v1/g_latest_version.php?d={device_code}&b=F&r={region_code}&n=1"
           
+          print(f"--- Đang truy vấn trực tiếp Server OTA Xiaomi ({target_region}) ---")
+          print(f"URL: {api_url}")
+          
+          headers = {
+              "User-Agent": "MiuiBrowser/12.12.1"
+          }
+
           try:
-              res = requests.get(api_url, timeout=15)
+              res = requests.get(api_url, headers=headers, timeout=15)
               res.raise_for_status()
-              data = res.json()
-          except Exception as e:
-              print(f"[LỖI TỆ TỘI] Không thể tải dữ liệu JSON từ Tracker: {e}")
-              sys.exit(1)
               
-          package_name = ""
-          version_code = ""
-          
-          # Duyệt tìm bản ROM Recovery mới nhất cho Myron
-          for item in data:
-              # Tracker này sử dụng "codename" để phân biệt
-              if item.get("codename") == device_code:
-                  download_link = item.get("url", "")
-                  if download_link.endswith(".zip"):
-                      package_name = download_link.split("/")[-1]
-                      version_code = item.get("version", "")
-                      break
-                      
-          if not package_name or not version_code:
-              print(f"[THẤT BẠI] Không tìm thấy dữ liệu ROM thật nào cho {device_code} trên Tracker.")
+              # Nếu không có dữ liệu hoặc trả về trống
+              if not res.text.strip():
+                  print(f"[THẤT BẠI] Server Xiaomi không trả về dữ liệu ROM nào cho {device_code} ({target_region}).")
+                  sys.exit(1)
+                  
+              data = res.json()
+              
+              # Phân tích cấu trúc dữ liệu trả về từ Xiaomi
+              if "LatestRom" in data:
+                  rom_info = data["LatestRom"]
+                  package_name = rom_info.get("filename")
+                  version_code = rom_info.get("version")
+              else:
+                  print(f"[THẤT BẠI] Thiết bị chưa có ROM Public trên server OTA của Xiaomi.")
+                  sys.exit(1)
+                  
+          except Exception as e:
+              print(f"[LỖI HỆ THỐNG] Không thể kết nối hoặc phân tích cú pháp từ Xiaomi: {e}")
               sys.exit(1)
 
-          # Sinh link tải tốc độ cao Aliyun từ dữ liệu thật vừa cào được
+          if not package_name or not version_code:
+              print("[LỖI] Dữ liệu tên file hoặc phiên bản trả về bị trống.")
+              sys.exit(1)
+
+          # Sinh link tải tốc độ cao Aliyun từ dữ liệu thật vừa lấy được
           final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
           
-          print(f"[THÀNH CÔNG RỰC RỠ]")
+          print(f"\n[THÀNH CÔNG RỰC RỠ]")
           print(f"-> Version thật: {version_code}")
           print(f"-> File name thật: {package_name}")
-          print(f"-> Link Aliyun: {final_download_url}")
+          print(f"-> Link Aliyun: {final_download_url}\n")
           
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f"DOWNLOAD_URL={final_download_url}\n")
