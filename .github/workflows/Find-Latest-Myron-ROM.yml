@@ -26,80 +26,45 @@ jobs:
       - name: Cài đặt thư viện Cào dữ liệu
         run: pip install requests beautifulsoup4
 
-      - name: Lấy dữ liệu ROM thật từ API Tổng Xiaomi Firmware Updater
-        id: scraper
+      - name: Tải mã nguồn trang web bằng curl
         run: |
-          python - <<EOF
-          import requests
-          import os
-          import sys
+          # Tải file HTML và lưu lại
+          curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+               -H "Accept: text/html" \
+               --max-time 30 \
+               "https://miuirom.org/phones/redmi-k90-pro-max" > phone_page.html
 
-          target_region = "${{ matrix.region }}"
-          
-          # Đặt mã máy (codename)
-          device_code = "myron"
-          
-          # Gọi file JSON tổng hợp tất cả các thiết bị Stable Recovery của XiaomiFirmwareUpdater
-          api_url = "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery.json"
-          
-          print(f"--- Đang truy xuất dữ liệu thật từ API Tổng cho: {device_code} ({target_region}) ---")
-          
-          try:
-              res = requests.get(api_url, timeout=20)
-              res.raise_for_status()
-              data = res.json()
-          except Exception as e:
-              print(f"[LỖI] Không thể tải dữ liệu JSON từ GitHub: {e}")
-              sys.exit(1)
-              
-          package_name = ""
-          version_code = ""
-          
-          # Duyệt tìm bản ROM tương ứng trong file JSON tổng
-          for item in data:
-              # Lọc đúng codename 'myron'
-              if item.get("codename", "").lower() == device_code:
-                  download_link = item.get("link", item.get("url", ""))
-                  filename = download_link.split("/")[-1] if download_link else ""
-                  
-                  if filename.endswith(".zip"):
-                      # Lọc theo vùng dựa vào ký tự trong tên file ROM HyperOS
-                      if target_region == "China" and "CN" in filename:
-                          package_name = filename
-                          version_code = item.get("version", "")
-                          break
-                      elif target_region == "EEA" and ("EU" in filename or "EEA" in filename.upper()):
-                          package_name = filename
-                          version_code = item.get("version", "")
-                          break
-                          
-          if not package_name or not version_code:
-              print(f"[THẤT BẠI] Hiện chưa có dữ liệu ROM thật của {device_code} được index trên hệ thống Tracker.")
-              sys.exit(1)
+          # Kiểm tra nếu file trống (lỗi kết nối hoặc 404)
+          if [ ! -s phone_page.html ]; then
+            echo "[LỖI] File tải về trống rỗng. Có thể trang web trả về 404 hoặc bị chặn!"
+            exit 1
+          fi
 
-          # Sinh link tải tốc độ cao Aliyun từ dữ liệu thật
-          final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
-          
-          print(f"\n[THÀNH CÔNG RỰC RỠ]")
-          print(f"-> Version thật: {version_code}")
-          print(f"-> File name thật: {package_name}")
-          print(f"-> Link Aliyun: {final_download_url}\n")
-          
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f"DOWNLOAD_URL={final_download_url}\n")
-              f.write(f"ROM_VERSION={version_code}\n")
-          EOF
-
-      - name: Thực hiện tải gói ROM chính thức
+      - name: Kiểm tra sự tồn tại của từ khóa trong mã nguồn
         run: |
-          echo "Luồng ${{ matrix.region }} đang tải phiên bản: ${{ env.ROM_VERSION }}"
-          echo "Đường dẫn tải tốc độ cao: ${{ env.DOWNLOAD_URL }}"
+          echo "=== 1. KIỂM TRA TỪ KHÓA 'CHINA' ==="
+          if grep -qi "china" phone_page.html; then
+            echo "-> TÌM THẤY chữ 'China'. Dưới đây là các dòng chứa từ khóa:"
+            grep -in "china" phone_page.html | head -n 10
+          else
+            echo "-> KHÔNG TÌM THẤY chữ 'China' nào."
+          fi
           
-          # Tích hợp mã bảo mật cá nhân của bạn
-          SECRET_HASH="${{ secrets.MY_KSU_HASH }}"
+          echo -e "\n=========================================\n"
           
-          # Tiến hành tải bằng curl độc lập trên máy ảo này
-          curl -L -O "${{ env.DOWNLOAD_URL }}"
+          echo "=== 2. KIỂM TRA TỪ KHÓA 'EUROPE' ==="
+          if grep -qi "europe" phone_page.html; then
+            echo "-> TÌM THẤY chữ 'Europe'. Dưới đây là các dòng chứa từ khóa:"
+            grep -in "europe" phone_page.html | head -n 10
+          else
+            echo "-> KHÔNG TÌM THẤY chữ 'Europe' nào."
+          fi
+
+          echo -e "\n=========================================\n"
           
-          echo "Hoàn thành quá trình tải tệp của luồng ${{ matrix.region }}!"
-          ls -lh
+          echo "=== 3. KIỂM TRA TỪ KHÓA 'HYPEROS' ==="
+          if grep -qi "hyperos" phone_page.html; then
+            echo "-> TÌM THẤY chữ 'HyperOS'."
+          else
+            echo "-> KHÔNG TÌM THẤY chữ 'HyperOS'."
+          fi
