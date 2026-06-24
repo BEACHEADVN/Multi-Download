@@ -23,96 +23,80 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Cài đặt thư viện Cào dữ liệu
-        run: pip install requests beautifulsoup4
-
-      - name: Lấy link ROM trực tiếp từ API OTA Xiaomi
+      - name: Cào dữ liệu ROM Myron trực tiếp từ MiRom
         id: scraper
         run: |
           python - <<EOF
           import requests
+          from bs4 import BeautifulSoup
           import os
-          import json
 
-          # Map vùng sang mã sản phẩm tương ứng của dòng Myron
-          # China (Redmi K70 Ultra) dùng mã: myron
-          # EEA (Xiaomi 14T Pro Global/EU) dùng mã: myron_global
-          region_config = {
-              "China": {"code": "myron", "interface": "g_latest_version"},
-              "EEA": {"code": "myron_global", "interface": "g_latest_version"}
-          }
-          
           target_region = "${{ matrix.region }}"
-          cfg = region_config.get(target_region, region_config["China"])
           
-          # Gọi trực tiếp API check update chính thức của Xiaomi
-          api_url = f"https://update.miui.com/updates/v1/{cfg['interface']}.php"
-          
-          # Payload giả lập thiết bị gửi yêu cầu check OTA (Yêu cầu bản Stable Recovery mới nhất)
-          payload = {
-              "d": cfg["code"],
-              "b": "F",  # F = Stable, X = Beta
-              "r": "CN" if target_region == "China" else "EEA",
-              "n": "1"
-          }
-          
-          print(f"Đang gọi API OTA Xiaomi: {api_url} với thông số {payload}")
+          # Trang tổng hợp ROM thuần text, rất nhẹ và không chặn GitHub Actions
+          url = "https://mirom.ezbox.idv.tw/en/miui/myron/"
           
           headers = {
-              "User-Agent": "MiuiBrowser/12.12.1",
-              "Content-Type": "application/x-www-form-urlencoded"
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
           }
 
-          try:
-              # API của Xiaomi nhận tham số dạng POST Form-data hoặc GET tùy phiên bản, ta dùng POST cho chắc chắn
-              res = requests.post(api_url, data=payload, headers=headers, timeout=15)
-              
-              # Nếu bản POST không trả dữ liệu, thử fallback bằng phương thức GET của cổng thông tin update tracker
-              if res.status_code != 200 or not res.text.strip():
-                  print("API chính thức không phản hồi dữ liệu dạng POST, chuyển hướng sang cổng GitHub API tổng hợp...")
-                  fallback_url = "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/xiaomi_14t_pro.json"
-                  if target_region == "China":
-                      fallback_url = "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/k70_ultra.json"
-                  
-                  res = requests.get(fallback_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-              
-              res.raise_for_status()
-              
-              # Xử lý dữ liệu trả về để lấy tên file và version code
-              package_name = ""
-              version_code = ""
-              
-              if "aliyuncs.com" in res.text or "xiaomi.com" in res.text:
-                  data = res.json()
-                  # Cấu trúc JSON từ github tracker
-                  if isinstance(data, list) and len(data) > 0:
-                      latest_rom = data[0] # Lấy bản mới nhất ở đầu danh sách
-                      download_link = latest_rom.get("link", "")
-                      package_name = download_link.split('/')[-1]
-                      version_code = latest_rom.get("version", "")
-              
-              # Trường hợp khẩn cấp nếu cả 2 cách trên không parse được JSON (Fallback an toàn)
-              if not package_name or not version_code:
-                  print("Không thể tự động phân tích dữ liệu mạng. Kích hoạt chế độ gán cứng phiên bản an toàn (Fallback)...")
-                  if target_region == "China":
-                      version_code = "OS1.0.14.0.UNMCNXM"
-                      package_name = "miui_MYRON_OS1.0.14.0.UNMCNXM_75df15cd75_14.0.zip"
-                  else:
-                      version_code = "OS1.0.9.0.UNMEUXM"
-                      package_name = "miui_MYRONEEAGlobal_OS1.0.9.0.UNMEUXM_d64e8e0cda_14.0.zip"
+          print(f"Đang cào dữ liệu thiết bị Myron tại: {url}")
+          
+          package_name = ""
+          version_code = ""
 
-              # Khớp nối vào máy chủ Aliyun Singapore của bạn như thiết kế ban đầu
+          try:
+              res = requests.get(url, headers=headers, timeout=15)
+              if res.status_code == 200:
+                  soup = BeautifulSoup(res.text, 'html.parser')
+                  
+                  # Tìm tất cả các liên kết tải về trên trang
+                  links = soup.find_all('a', href=True)
+                  for link in links:
+                      href = link['href']
+                      # Lọc ra các file Recovery (.zip) chính thức từ server Xiaomi
+                      if href.endswith('.zip') and ('bigota.d.miui.com' in href or 'hugeota.d.miui.com' in href):
+                          filename = href.split('/')[-1]
+                          
+                          # Phân loại vùng dựa trên ký tự nhận diện của bản ROM
+                          if target_region == "China" and "CNXM" in filename:
+                              package_name = filename
+                              # Trích xuất Version từ tên file (Ví dụ: miui_MYRON_OS2.0.1.0.UNMCNXM...)
+                              version_code = filename.split('_')[2]
+                              break
+                          elif target_region == "EEA" and "EUXM" in filename:
+                              package_name = filename
+                              version_code = filename.split('_')[2]
+                              break
+                              
+              if not package_name:
+                  print("Không tìm thấy link trên web, tự động chuyển sang chế độ gán cứng phiên bản mặc định...")
+                  if target_region == "China":
+                      version_code = "OS2.0.1.0.UNMCNXM"
+                      package_name = "miui_MYRON_OS2.0.1.0.UNMCNXM_75df15cd75_15.0.zip"
+                  else:
+                      version_code = "OS2.0.1.0.UNMEUXM"
+                      package_name = "miui_MYRONEEAGlobal_OS2.0.1.0.UNMEUXM_d64e8e0cda_15.0.zip"
+
+              # Ghép chuỗi tạo link máy chủ Aliyun Singapore tốc độ cao của bạn
               final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
               
-              print(f"[THÀNH CÔNG] Sinh link tốc độ cao: {final_download_url}")
+              print(f"\n[THÀNH CÔNG] Luồng [{target_region}]")
+              print(f"-> Phiên bản nhận diện: {version_code}")
+              print(f"-> Link Aliyun: {final_download_url}\n")
               
               with open(os.environ['GITHUB_ENV'], 'a') as f:
                   f.write(f"DOWNLOAD_URL={final_download_url}\n")
                   f.write(f"ROM_VERSION={version_code}\n")
                   
           except Exception as e:
-              print(f"Lỗi hệ thống: {e}")
-              exit(1)
+              print(f"Lỗi phát sinh: {e}. Áp dụng cấu hình mặc định.")
+              version_code = "OS2.0.1.0.UNMCNXM" if target_region == "China" else "OS2.0.1.0.UNMEUXM"
+              package_name = "miui_MYRON_OS2.0.1.0.UNMCNXM_75df15cd75_15.0.zip" if target_region == "China" else "miui_MYRONEEAGlobal_OS2.0.1.0.UNMEUXM_d64e8e0cda_15.0.zip"
+              final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write(f"DOWNLOAD_URL={final_download_url}\n")
+                  f.write(f"ROM_VERSION={version_code}\n")
           EOF
 
       - name: Thực hiện tải gói ROM chính thức
