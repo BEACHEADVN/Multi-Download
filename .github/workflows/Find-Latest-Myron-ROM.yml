@@ -26,21 +26,7 @@ jobs:
       - name: Cài đặt thư viện Cào dữ liệu
         run: pip install requests beautifulsoup4
 
-      - name: Tải mã nguồn trang web bằng curl
-        run: |
-          # Tải file HTML và lưu lại
-          curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-               -H "Accept: text/html" \
-               --max-time 30 \
-               "https://miuirom.org/phones/redmi-k90-pro-max" > phone_page.html
-
-          # Kiểm tra nếu file trống (lỗi kết nối hoặc 404)
-          if [ ! -s phone_page.html ]; then
-            echo "[LỖI] File tải về trống rỗng. Có thể trang web trả về 404 hoặc bị chặn!"
-            exit 1
-          fi
-
-      - name: Trích xuất tên phiên bản ROM thật từ Web
+      - name: Trích xuất tên phiên bản ROM thật từ giao diện chính xác
         id: scraper
         run: |
           python - <<EOF
@@ -50,10 +36,10 @@ jobs:
 
           target_region = "${{ matrix.region }}"
           
-          # Định vị thẻ neo theo cấu trúc menu của miuirom.org
-          region_anchor = "#China" if target_region == "China" else "#EEA"
+          # Từ khóa hiển thị trên giao diện của trang web
+          region_keyword = "China" if target_region == "China" else "Europe"
           
-          print(f"--- Đang trích xuất tên phiên bản ROM cho vùng: {target_region} ---")
+          print(f"--- Đang trích xuất tên phiên bản ROM thật cho vùng: {target_region} ({region_keyword}) ---")
 
           with open("phone_page.html", "r", encoding="utf-8") as f:
               html_content = f.read()
@@ -61,25 +47,44 @@ jobs:
           soup = BeautifulSoup(html_content, 'html.parser')
           version_code = ""
 
-          # Tìm đến block danh sách vùng 'region_list' để lấy chữ dữ liệu gốc
-          region_list = soup.find('div', class_='region_list')
-          if region_list:
-              anchors = region_list.find_all('a', href=region_anchor)
-              if anchors:
-                  full_version_text = anchors[0].get_text(strip=True)
-                  # Bỏ chữ 'HyperOS ' đi để lấy phần tên bản ROM nguyên bản
-                  if "HyperOS " in full_version_text:
-                      version_code = full_version_text.replace("HyperOS ", "").strip()
+          # Chiến thuật: Tìm text "China" hoặc "Europe" trước
+          # Phiên bản ROM thật (thẻ <a>) chính là thẻ <a> gần nhất nằm ngay phía sau hoặc bên trong khối đó
+          all_links = soup.find_all('a')
+          
+          # Cách 1: Quét tìm dựa theo định dạng text của mã build HyperOS 3 (Bắt đầu bằng 3.0. và có đuôi ký tự vùng)
+          for link in all_links:
+              text = link.get_text(strip=True)
+              # Kiểm tra cấu trúc mã build (ví dụ: 3.0.306.0.WPMCNXM)
+              if text.startswith("3.0."):
+                  if target_region == "China" and "CNXM" in text:
+                      version_code = text
+                      break
+                  elif target_region == "EEA" and "EUXM" in text:
+                      version_code = text
+                      break
+
+          # Cách 2: Dự phòng nếu cấu trúc HTML bao bọc phức tạp (Quét thẻ cha chứa chữ)
+          if not version_code:
+              for item in soup.find_all(['li', 'div']):
+                  item_text = item.get_text()
+                  if region_keyword in item_text and "3.0." in item_text:
+                      # Tìm thẻ a nằm trong block này
+                      inner_link = item.find('a')
+                      if inner_link:
+                          link_text = inner_link.get_text(strip=True)
+                          if link_text.startswith("3.0."):
+                              version_code = link_text
+                              break
 
           if not version_code:
-              print(f"[THẤT BẠI] Không thể tìm thấy tên phiên bản ROM nào hiển thị cho vùng {target_region}.")
+              print(f"[THẤT BẠI] Không tìm thấy chuỗi phiên bản dạng 3.0.x.x cho vùng {target_region} trên giao diện web.")
               sys.exit(1)
 
-          print(f"\n[KẾT QUẢ TRÍCH XUẤT THẬT]")
+          print(f"\n[KẾT QUẢ TRÍCH XUẤT TỪ ẢNH MÀN HÌNH]")
           print(f"-> Vùng: {target_region}")
-          print(f"-> Tên phiên bản ROM: {version_code}\n")
+          print(f"-> Mã phiên bản ROM thật: {version_code}\n")
 
-          # Lưu biến môi trường để các bước sau sử dụng nếu cần
+          # Lưu lại biến môi trường
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f"ROM_VERSION={version_code}\n")
           EOF
