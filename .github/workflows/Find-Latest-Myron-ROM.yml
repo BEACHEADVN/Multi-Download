@@ -26,90 +26,59 @@ jobs:
       - name: Cài đặt thư viện Cào dữ liệu
         run: pip install requests beautifulsoup4
 
-      - name: Dọn dẹp tệp tin trạng thái cũ
-        run: |
-          # Xóa sạch các file text rác nếu có trước khi tải
-          rm -f *_state.txt *.txt
-
-      - name: Cào dữ liệu và phân tích URL Aliyun Tốc Độ Cao
+      - name: Lấy link ROM từ API Xiaomi OTA
         id: scraper
         run: |
           python - <<EOF
           import requests
-          from bs4 import BeautifulSoup
           import os
-          import re
 
-          headers = {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          # Map tên vùng từ matrix sang mã vùng của Xiaomi
+          region_map = {
+              "China": "CN",
+              "EEA": "EEA"
           }
           
-          base_url = "https://hyperosroms.com"
-          model_url = f"{base_url}/model/myron"
-          
-          # Lấy thông tin khu vực từ Matrix của GitHub Action
           target_region = "${{ matrix.region }}"
-          target_type = "recovery"
+          device_code = "myron" # Mã máy của Redmi K70 Ultra / 14T Pro
+          rom_region = region_map.get(target_region, "CN")
+
+          # Sử dụng API công khai chính thức để lấy thông tin ROM
+          api_url = f"https://romapi.fds-dev.workers.dev/api/v1/device/{device_code}/stable"
           
-          print(f"Đang quét trang tổng hợp: {model_url}")
-          print(f"Mục tiêu luồng matrix hiện tại: Region=[{target_region}], Type=[{target_type}]")
+          print(f"Đang gọi API: {api_url} cho vùng {target_region} ({rom_region})")
           
-          res = requests.get(model_url, headers=headers, timeout=15)
-          if res.status_code != 200:
-              print("Không thể truy cập trang chủ model Myron")
-              exit(1)
+          try:
+              res = requests.get(api_url, timeout=15)
+              res.raise_for_status()
+              data = res.json()
               
-          soup = BeautifulSoup(res.text, 'html.parser')
-          rows = soup.find_all('tr')
-          sub_page_url = ""
-
-          for row in rows:
-              cells = row.find_all('td')
-              if len(cells) >= 5:
-                  region_text = cells[1].get_text(strip=True)
-                  type_text = cells[2].get_text(strip=True).lower()
+              # Tìm bản nâng cấp Recovery phù hợp với vùng
+              rom_info = None
+              for rom in data.get("branches", []):
+                  if rom.get("region") == rom_region and rom.get("type") == "recovery":
+                      rom_info = rom
+                      break
+                      
+              if not rom_info:
+                  print(f"Không tìm thấy bản ROM Recovery nào cho vùng {target_region}")
+                  exit(1)
                   
-                  # Khớp chính xác vùng (China hoặc EEA) từ matrix
-                  if region_text == target_region and type_text == target_type:
-                      link_tag = cells[0].find('a') or cells[-1].find('a')
-                      if link_tag and 'href' in link_tag.attrs:
-                          sub_page_url = base_url + link_tag['href'] if link_tag['href'].startswith('/') else link_tag['href']
-                          break
-
-          if not sub_page_url:
-              print(f"Không tìm thấy phiên bản phù hợp cho vùng {target_region}.")
-              exit(1)
-
-          print(f"Đang quét trang chi tiết: {sub_page_url}")
-          res_sub = requests.get(sub_page_url, headers=headers, timeout=15)
-          soup_sub = BeautifulSoup(res_sub.text, 'html.parser')
-          
-          package_name = ""
-          for li in soup_sub.find_all(['li', 'p']):
-              text = li.get_text()
-              if "Package Name:" in text:
-                  package_name = text.split("Package Name:")[-1].strip()
-                  break
+              package_name = rom_info.get("filename")
+              version_code = rom_info.get("version")
+              
+              # Ghép chuỗi tạo link máy chủ Aliyun Singapore tốc độ cao như cũ
+              final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
+              
+              print(f"[THÀNH CÔNG] Sinh link tốc độ cao: {final_download_url}")
+              
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write(f"DOWNLOAD_URL={final_download_url}\n")
+                  f.write(f"ROM_VERSION={version_code}\n")
                   
-          if not package_name:
-              match = re.search(r'([\w-]+\.zip)', res_sub.text)
-              if match:
-                  package_name = match.group(1)
-
-          if not package_name:
-              print("Không thể trích xuất Package Name từ trang chi tiết.")
+          except Exception as e:
+              print(f"Lỗi khi gọi API: {e}")
               exit(1)
-
-          version_code = sub_page_url.split('/')[-1]
-          
-          # Ghép chuỗi tạo link máy chủ Aliyun Singapore tốc độ cao
-          final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
-          
-          print(f"[THÀNH CÔNG] Sinh link tốc độ cao: {final_download_url}")
-          
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f"DOWNLOAD_URL={final_download_url}\n")
-              f.write(f"ROM_VERSION={version_code}\n")
           EOF
 
       - name: Thực hiện tải gói ROM chính thức
