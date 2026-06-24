@@ -26,94 +26,49 @@ jobs:
       - name: Cài đặt thư viện Cào dữ liệu
         run: pip install requests beautifulsoup4
 
-      - name: Tải trang HTML bằng curl công khai
-        run: |
-          # Dùng curl với cấu hình User-Agent giả lập Chrome để tránh bị chặn kết nối
-          curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
-               -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
-               -H "Accept-Language: en-US,en;q=0.5" \
-               --max-time 30 \
-               "https://hyperosroms.com/model/myron" > model_page.html
-          
-          # Kiểm tra xem có tải được nội dung thật hay không
-          if [ ! -s model_page.html ] || grep -q "Access denied" model_page.html; then
-            echo "[LỖI] Không thể tải trang hoặc bị Cloudflare chặn IP máy ảo GitHub!"
-            exit 1
-          fi
-
-      - name: Phân tích cú pháp và trích xuất link ROM thật
+      - name: Lấy dữ liệu thật từ API Xiaomi Firmware Updater
         id: scraper
         run: |
           python - <<EOF
-          import os
-          import re
           import requests
-          from bs4 import BeautifulSoup
+          import os
+          import sys
 
           target_region = "${{ matrix.region }}"
-          target_type = "recovery"
-          base_url = "https://hyperosroms.com"
-
-          print(f"--- Đang phân tích dữ liệu cho vùng: {target_region} ---")
-
-          # Đọc file HTML đã tải về bằng curl ở bước trước
-          with open("model_page.html", "r", encoding="utf-8") as f:
-              html_content = f.read()
-
-          soup = BeautifulSoup(html_content, 'html.parser')
-          rows = soup.find_all('tr')
-          sub_page_url = ""
-
-          for row in rows:
-              cells = row.find_all('td')
-              if len(cells) >= 5:
-                  region_text = cells[1].get_text(strip=True)
-                  type_text = cells[2].get_text(strip=True).lower()
-                  
-                  # Khớp chính xác vùng chọn trong Matrix
-                  if region_text.lower() == target_region.lower() and type_text == target_type:
-                      link_tag = cells[0].find('a') or cells[-1].find('a')
-                      if link_tag and 'href' in link_tag.attrs:
-                          href = link_tag['href']
-                          sub_page_url = base_url + href if href.startswith('/') else href
-                          break
-
-          if not sub_page_url:
-              print(f"[THẤT BẠI] Không tìm thấy dòng dữ liệu nào khớp với vùng {target_region} trên trang web.")
-              exit(1)
-
-          print(f"Tìm thấy trang chi tiết: {sub_page_url}")
-
-          # Tiếp tục dùng curl qua session để lấy trang con thông qua Python (hoặc lưu file tương tự)
-          headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-          res_sub = requests.get(sub_page_url, headers=headers, timeout=15)
           
-          if res_sub.status_code != 200:
-              print(f"[LỖI] Không thể truy cập trang chi tiết: {sub_page_url}")
-              exit(1)
-
-          soup_sub = BeautifulSoup(res_sub.text, 'html.parser')
+          # Bản China: myron, Bản EEA: myron_global (theo chuẩn đặt tên của MIUI Updates Tracker)
+          device_code = "myron" if target_region == "China" else "myron_global"
+          
+          # Gọi file JSON nguyên gốc từ Github (Không bao giờ bị chặn)
+          api_url = "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery/stable_recovery.json"
+          
+          print(f"--- Đang truy xuất dữ liệu thật cho thiết bị: {device_code} ({target_region}) ---")
+          
+          try:
+              res = requests.get(api_url, timeout=15)
+              res.raise_for_status()
+              data = res.json()
+          except Exception as e:
+              print(f"[LỖI TỆ TỘI] Không thể tải dữ liệu JSON từ Tracker: {e}")
+              sys.exit(1)
+              
           package_name = ""
+          version_code = ""
           
-          # Trích xuất Package Name (.zip) từ trang chi tiết
-          for li in soup_sub.find_all(['li', 'p']):
-              text = li.get_text()
-              if "Package Name:" in text:
-                  package_name = text.split("Package Name:")[-1].strip()
-                  break
-                  
-          if not package_name:
-              match = re.search(r'([\w-]+\.zip)', res_sub.text)
-              if match:
-                  package_name = match.group(1)
+          # Duyệt tìm bản ROM Recovery mới nhất cho Myron
+          for item in data:
+              # Tracker này sử dụng "codename" để phân biệt
+              if item.get("codename") == device_code:
+                  download_link = item.get("url", "")
+                  if download_link.endswith(".zip"):
+                      package_name = download_link.split("/")[-1]
+                      version_code = item.get("version", "")
+                      break
+                      
+          if not package_name or not version_code:
+              print(f"[THẤT BẠI] Không tìm thấy dữ liệu ROM thật nào cho {device_code} trên Tracker.")
+              sys.exit(1)
 
-          if not package_name:
-              print("[LỖI] Không thể trích xuất được tên gói cài đặt (.zip) thực tế.")
-              exit(1)
-
-          # Cắt lấy mã phiên bản từ URL trang chi tiết
-          version_code = sub_page_url.split('/')[-1]
-          
           # Sinh link tải tốc độ cao Aliyun từ dữ liệu thật vừa cào được
           final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
           
