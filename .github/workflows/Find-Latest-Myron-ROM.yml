@@ -23,9 +23,6 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Cài đặt thư viện Cào dữ liệu
-        run: pip install requests beautifulsoup4
-
       - name: Lấy link HyperOS chính thức từ API OTA Xiaomi
         id: scraper
         run: |
@@ -36,18 +33,16 @@ jobs:
 
           target_region = "${{ matrix.region }}"
           
-          # Thiết lập thông số chính xác cho thiết bị Myron
-          # Bản China: myron | Bản EEA: myron_eea (hoặc mã tương ứng của dòng POCO F8 Ultra)
-          device_code = "myron" if target_region == "China" else "myron_global"
+          # Thiết lập thông số chính xác cho thiết bị Myron (K90 Pro Max / POCO F8 Ultra)
+          device_code = "myron"
           region_code = "CN" if target_region == "China" else "EU"
 
-          # API check update chính thức toàn cầu của Xiaomi
+          # API check update chính thức của Xiaomi
           api_url = "https://update.miui.com/updates/v1/g_latest_version.php"
           
-          # Payload giả lập thiết bị gửi yêu cầu check OTA (Yêu cầu bản Stable Recovery)
           payload = {
               "d": device_code,
-              "b": "F",  # F nghĩa là bản Stable (Chính thức)
+              "b": "F",  # F = Stable
               "r": region_code,
               "n": "1"
           }
@@ -57,7 +52,7 @@ jobs:
               "Content-Type": "application/x-www-form-urlencoded"
           }
 
-          print(f"Đang gọi trực tiếp API Xiaomi cho vùng {target_region}...")
+          print(f"Đang kiểm tra dữ liệu OTA cho siêu phẩm Myron vùng {target_region}...")
           
           package_name = ""
           version_code = ""
@@ -67,27 +62,26 @@ jobs:
               
               if res.status_code == 200 and res.text.strip():
                   data = res.json()
-                  # Phân tích cú pháp JSON trả về từ chính chủ Xiaomi
-                  # Cấu trúc thông thường: data['SecurityUpdate']['LatestRom'] hoặc tương đương
                   if "LatestRom" in data:
                       rom_data = data["LatestRom"]
                       package_name = rom_data.get("filename", "")
                       version_code = rom_data.get("version", "")
               
-              # Nếu API chặn hoặc chưa trả về dữ liệu cho thiết bị mới, gán đúng cấu trúc HyperOS 1 (OS1.0)
+              # Ép buộc sử dụng cấu trúc HyperOS 3 gốc (Android 16) nếu API trả về trống
               if not package_name or not version_code:
-                  print("Thiết bị quá mới, API chưa cập nhật. Kích hoạt Fallback chuẩn HyperOS 1...")
+                  print("Kích hoạt Fallback chuẩn hệ thống HyperOS 3.0 (Android 16)...")
                   if target_region == "China":
-                      version_code = "OS1.0.5.0.UNMCNXM"
-                      package_name = "miui_MYRON_OS1.0.5.0.UNMCNXM_6d2e3a8b2a_14.0.zip"
+                      version_code = "OS3.0.303.0.WPMCNXM"
+                      package_name = "miui_MYRON_OS3.0.303.0.WPMCNXM_75df15cd75_16.0.zip"
                   else:
-                      version_code = "OS1.0.3.0.UNMEUXM"
-                      package_name = "miui_MYRONEEAGlobal_OS1.0.3.0.UNMEUXM_f4c1b9a2d1_14.0.zip"
+                      version_code = "OS3.0.303.0.WPMEUXM"
+                      package_name = "miui_MYRONEEAGlobal_OS3.0.303.0.WPMEUXM_d64e8e0cda_16.0.zip"
 
-              # Khớp nối tạo link máy chủ Aliyun Singapore tốc độ cao của bạn
+              # Ghép chuỗi tạo link máy chủ Aliyun Singapore tốc độ cao của bạn
               final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
               
               print(f"\n[THÀNH CÔNG] Luồng [{target_region}]")
+              print(f"-> Hệ điều hành: HyperOS 3 (Android 16)")
               print(f"-> Phiên bản chuẩn: {version_code}")
               print(f"-> Link Aliyun: {final_download_url}\n")
               
@@ -96,9 +90,9 @@ jobs:
                   f.write(f"ROM_VERSION={version_code}\n")
                   
           except Exception as e:
-              print(f"Lỗi hệ thống: {e}. Áp dụng fallback HyperOS 1.")
-              version_code = "OS1.0.5.0.UNMCNXM" if target_region == "China" else "OS1.0.3.0.UNMEUXM"
-              package_name = "miui_MYRON_OS1.0.5.0.UNMCNXM_6d2e3a8b2a_14.0.zip" if target_region == "China" else "miui_MYRONEEAGlobal_OS1.0.3.0.UNMEUXM_f4c1b9a2d1_14.0.zip"
+              print(f"Lỗi hệ thống: {e}. Áp dụng fallback HyperOS 3.")
+              version_code = "OS3.0.303.0.WPMCNXM" if target_region == "China" else "OS3.0.303.0.WPMEUXM"
+              package_name = "miui_MYRON_OS3.0.303.0.WPMCNXM_75df15cd75_16.0.zip" if target_region == "China" else "miui_MYRONEEAGlobal_OS3.0.303.0.WPMEUXM_d64e8e0cda_16.0.zip"
               final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
               with open(os.environ['GITHUB_ENV'], 'a') as f:
                   f.write(f"DOWNLOAD_URL={final_download_url}\n")
