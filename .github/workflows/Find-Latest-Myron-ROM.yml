@@ -28,20 +28,18 @@ jobs:
 
       - name: Tải mã nguồn trang web bằng curl
         run: |
-          # Bắt buộc phải chạy lệnh này để sinh ra file phone_page.html
+          # Tải toàn bộ nội dung trang web về máy ảo
           curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
-               -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
-               -H "Accept-Language: en-US,en;q=0.5" \
+               -H "Accept: text/html" \
                --max-time 30 \
                "https://miuirom.org/phones/redmi-k90-pro-max" > phone_page.html
 
-          # Kiểm tra nếu file không tồn tại hoặc trống
           if [ ! -s phone_page.html ]; then
-            echo "[LỖI] Không thể tải được file phone_page.html từ miuirom.org!"
+            echo "[LỖI] Không thể tải được dữ liệu từ miuirom.org!"
             exit 1
           fi
 
-      - name: Trích xuất tên phiên bản ROM thật từ giao diện chính xác
+      - name: Trích xuất mã ROM từ block Neo chỉ định
         id: scraper
         run: |
           python - <<EOF
@@ -50,13 +48,11 @@ jobs:
           from bs4 import BeautifulSoup
 
           target_region = "${{ matrix.region }}"
-          region_keyword = "China" if target_region == "China" else "Europe"
           
-          print(f"--- Đang trích xuất tên phiên bản ROM thật cho vùng: {target_region} ({region_keyword}) ---")
-
-          if not os.path.exists("phone_page.html"):
-              print("[LỖI] Python không tìm thấy file phone_page.html!")
-              sys.exit(1)
+          # Định vị ID block theo vùng: 'China' hoặc 'EEA'
+          target_id = "China" if target_region == "China" else "EEA"
+          
+          print(f"--- Đang truy quét trực tiếp tại vùng Neo: #{target_id} ---")
 
           with open("phone_page.html", "r", encoding="utf-8") as f:
               html_content = f.read()
@@ -64,31 +60,45 @@ jobs:
           soup = BeautifulSoup(html_content, 'html.parser')
           version_code = ""
 
-          all_links = soup.find_all('a')
+          # Bước 1: Tìm block div hoặc section có id cụ thể (#China hoặc #EEA)
+          region_block = soup.find(id=target_id)
           
-          # Quét tìm trực tiếp mã build HyperOS 3 dựa theo ảnh chụp màn hình của bạn
-          for link in all_links:
-              text = link.get_text(strip=True)
-              if text.startswith("3.0."):
-                  if target_region == "China" and "CNXM" in text:
-                      version_code = text
-                      break
-                  elif target_region == "EEA" and "EUXM" in text:
-                      version_code = text
-                      break
+          if region_block:
+              # Bước 2: Quét toàn bộ các thẻ liên kết <a> nằm bên trong block vùng này
+              links = region_block.find_all('a')
+              for link in links:
+                  text = link.get_text(strip=True)
+                  # Nhận diện chính xác mã build HyperOS 3 (Ví dụ: 3.0.306.0.WPMCNXM)
+                  if text.startswith("3.0."):
+                      if target_region == "China" and "CNXM" in text:
+                          version_code = text
+                          break
+                      elif target_region == "EEA" and "EUXM" in text:
+                          version_code = text
+                          break
+
+          # Phòng hờ trường hợp ID nằm ở cấu trúc thẻ khác, quét fallback diện rộng theo danh mục màu xanh
+          if not version_code:
+              all_links = soup.find_all('a')
+              for link in all_links:
+                  text = link.get_text(strip=True)
+                  if text.startswith("3.0."):
+                      if target_region == "China" and "CNXM" in text:
+                          version_code = text
+                          break
+                      elif target_region == "EEA" and "EUXM" in text:
+                          version_code = text
+                          break
 
           if not version_code:
-              print(f"[THẤT BẠI] Không tìm thấy chuỗi phiên bản dạng 3.0.x.x cho vùng {target_region} trên giao diện web.")
+              print(f"[THẤT BẠI] Không tìm thấy mã phiên bản HyperOS 3 cho vùng {target_region}.")
               sys.exit(1)
 
-          print(f"\n[KẾT QUẢ TRÍCH XUẤT THÀNH CÔNG]")
+          print(f"\n[XÁC THỰC THÀNH CÔNG]")
           print(f"-> Vùng: {target_region}")
-          print(f"-> Mã phiên bản ROM thật: {version_code}\n")
+          print(f"-> Mã ROM trích xuất: {version_code}\n")
 
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f"ROM_VERSION={version_code}\n")
-          EOF
-          # Lưu lại biến môi trường
+          # Đẩy vào biến môi trường GitHub để dùng cho các bước đóng gói sau này
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f"ROM_VERSION={version_code}\n")
           EOF
