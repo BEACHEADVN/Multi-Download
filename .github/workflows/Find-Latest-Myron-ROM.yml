@@ -23,8 +23,23 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Cài đặt thư viện Cào dữ liệu
-        run: pip install requests beautifulsoup4
+      - name: Cài đặt thư viện BeautifulSoup
+        run: pip install beautifulsoup4 requests
+
+      - name: Tải mã nguồn trang web bằng curl
+        run: |
+          # Bắt buộc phải chạy lệnh này để sinh ra file phone_page.html
+          curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
+               -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
+               -H "Accept-Language: en-US,en;q=0.5" \
+               --max-time 30 \
+               "https://miuirom.org/phones/redmi-k90-pro-max" > phone_page.html
+
+          # Kiểm tra nếu file không tồn tại hoặc trống
+          if [ ! -s phone_page.html ]; then
+            echo "[LỖI] Không thể tải được file phone_page.html từ miuirom.org!"
+            exit 1
+          fi
 
       - name: Trích xuất tên phiên bản ROM thật từ giao diện chính xác
         id: scraper
@@ -35,11 +50,13 @@ jobs:
           from bs4 import BeautifulSoup
 
           target_region = "${{ matrix.region }}"
-          
-          # Từ khóa hiển thị trên giao diện của trang web
           region_keyword = "China" if target_region == "China" else "Europe"
           
           print(f"--- Đang trích xuất tên phiên bản ROM thật cho vùng: {target_region} ({region_keyword}) ---")
+
+          if not os.path.exists("phone_page.html"):
+              print("[LỖI] Python không tìm thấy file phone_page.html!")
+              sys.exit(1)
 
           with open("phone_page.html", "r", encoding="utf-8") as f:
               html_content = f.read()
@@ -47,14 +64,11 @@ jobs:
           soup = BeautifulSoup(html_content, 'html.parser')
           version_code = ""
 
-          # Chiến thuật: Tìm text "China" hoặc "Europe" trước
-          # Phiên bản ROM thật (thẻ <a>) chính là thẻ <a> gần nhất nằm ngay phía sau hoặc bên trong khối đó
           all_links = soup.find_all('a')
           
-          # Cách 1: Quét tìm dựa theo định dạng text của mã build HyperOS 3 (Bắt đầu bằng 3.0. và có đuôi ký tự vùng)
+          # Quét tìm trực tiếp mã build HyperOS 3 dựa theo ảnh chụp màn hình của bạn
           for link in all_links:
               text = link.get_text(strip=True)
-              # Kiểm tra cấu trúc mã build (ví dụ: 3.0.306.0.WPMCNXM)
               if text.startswith("3.0."):
                   if target_region == "China" and "CNXM" in text:
                       version_code = text
@@ -63,27 +77,17 @@ jobs:
                       version_code = text
                       break
 
-          # Cách 2: Dự phòng nếu cấu trúc HTML bao bọc phức tạp (Quét thẻ cha chứa chữ)
-          if not version_code:
-              for item in soup.find_all(['li', 'div']):
-                  item_text = item.get_text()
-                  if region_keyword in item_text and "3.0." in item_text:
-                      # Tìm thẻ a nằm trong block này
-                      inner_link = item.find('a')
-                      if inner_link:
-                          link_text = inner_link.get_text(strip=True)
-                          if link_text.startswith("3.0."):
-                              version_code = link_text
-                              break
-
           if not version_code:
               print(f"[THẤT BẠI] Không tìm thấy chuỗi phiên bản dạng 3.0.x.x cho vùng {target_region} trên giao diện web.")
               sys.exit(1)
 
-          print(f"\n[KẾT QUẢ TRÍCH XUẤT TỪ ẢNH MÀN HÌNH]")
+          print(f"\n[KẾT QUẢ TRÍCH XUẤT THÀNH CÔNG]")
           print(f"-> Vùng: {target_region}")
           print(f"-> Mã phiên bản ROM thật: {version_code}\n")
 
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f"ROM_VERSION={version_code}\n")
+          EOF
           # Lưu lại biến môi trường
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f"ROM_VERSION={version_code}\n")
