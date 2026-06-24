@@ -26,7 +26,7 @@ jobs:
       - name: Cài đặt thư viện Cào dữ liệu
         run: pip install requests beautifulsoup4
 
-      -- name: Lấy link HyperOS chính thức từ API OTA Xiaomi
+      - name: Lấy link HyperOS chính thức từ API OTA Xiaomi
         id: scraper
         run: |
           python - <<EOF
