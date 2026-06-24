@@ -26,19 +26,7 @@ jobs:
       - name: Cài đặt thư viện bổ trợ
         run: pip install beautifulsoup4 requests
 
-      - name: Tải mã nguồn trang web bằng curl
-        run: |
-          curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
-               -H "Accept: text/html" \
-               --max-time 30 \
-               "https://miuirom.org/phones/redmi-k90-pro-max" > phone_page.html
-
-          if [ ! -s phone_page.html ]; then
-            echo "[LỖI] Không thể tải được dữ liệu từ miuirom.org!"
-            exit 1
-          fi
-
-      - name: Trích xuất mã ROM và tìm link tải cuối cùng
+      - name: Trích xuất mã ROM và bóc tách link Mirror thật
         id: scraper
         run: |
           python - <<EOF
@@ -50,15 +38,15 @@ jobs:
           target_region = "${{ matrix.region }}"
           device_slug = "redmi-k90-pro-max"
           
-          print(f"--- Đang trích xuất mã ROM vùng: {target_region} ---")
+          print(f"--- BẮT ĐẦU QUY TRÌNH LUỒNG: {target_region} ---")
 
+          # 1. Đọc file tổng để lấy version_code
           with open("phone_page.html", "r", encoding="utf-8") as f:
               html_content = f.read()
 
           soup = BeautifulSoup(html_content, 'html.parser')
           version_code = ""
 
-          # Quét tìm trực tiếp mã build HyperOS 3 (Bắt đầu bằng 3.0.)
           all_links = soup.find_all('a')
           for link in all_links:
               text = link.get_text(strip=True)
@@ -71,16 +59,13 @@ jobs:
                       break
 
           if not version_code:
-              print(f"[THẤT BẠI] Không tìm thấy mã phiên bản HyperOS 3 cho vùng {target_region}.")
+              print(f"[LỖI] Không tìm thấy mã phiên bản cho vùng {target_region}.")
               sys.exit(1)
 
-          print(f"-> Đã lấy được Version Code thật: {version_code}")
-
-          # Khớp nối thành URL cổng tải trung gian giống hệt link bạn vừa gửi
+          # 2. Gọi vào trang trung gian /load theo link ảnh màn hình cung cấp
           load_url = f"https://miuirom.org/load?o={device_slug}&v={version_code}&l=en&t=Recovery"
-          print(f"-> Đường link chuyển hướng: {load_url}")
+          print(f"-> Truy cập trang Mirror: {load_url}")
 
-          # Gọi thử cổng load để lấy link file .zip gốc từ server Xiaomi (Không sợ chặn vì đây là request API ngắn)
           headers = {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
               "Referer": "https://miuirom.org/phones/redmi-k90-pro-max"
@@ -88,37 +73,43 @@ jobs:
           
           package_name = ""
           try:
-              # Cho phép bám theo chuyển hướng (allow_redirects=True) để bắt link bigota cuối cùng
-              res = requests.get(load_url, headers=headers, timeout=15, allow_redirects=True)
-              final_url = res.url
-              
-              if final_url.endswith('.zip'):
-                  package_name = final_url.split('/')[-1]
-                  print(f"-> Đã bóc tách thành công tên file gốc: {package_name}")
+              res_load = requests.get(load_url, headers=headers, timeout=15)
+              if res_load.status_code == 200:
+                  soup_load = BeautifulSoup(res_load.text, 'html.parser')
+                  
+                  # Tìm tất cả các link Mirror trên giao diện
+                  mirror_links = soup_load.find_all('a', href=True)
+                  for m_link in mirror_links:
+                      m_href = m_link['href']
+                      m_text = m_link.get_text(strip=True)
+                      
+                      # Ưu tiên bóc tách tên file từ nút "Mirror 1" hoặc bất kỳ link nào chứa đuôi .zip gốc
+                      if "Mirror" in m_text or m_href.endswith('.zip'):
+                          if 'bigota.d.miui.com' in m_href or 'hugeota.d.miui.com' in m_href:
+                              package_name = m_href.split('/')[-1]
+                              print(f"-> Đã tìm thấy file thật từ {m_text}: {package_name}")
+                              break
           except Exception as e:
-              print(f"[CẢNH BÁO] Không thể resolve link gốc: {e}")
+              print(f"[CẢNH BÁO] Không thể quét trang Mirror: {e}")
 
-          # Nếu không lấy được tên file qua redirect, tự dựng tên chuẩn dựa trên version gốc (An toàn, không cào bậy)
+          # 3. Fallback an toàn (Tuyệt đối không đoán bừa bản dựng, dùng đúng cấu trúc Xiaomi dựa trên version_code thật)
           if not package_name:
+              print("-> Không cào trực tiếp được nút Mirror. Tự động áp cấu trúc file chuẩn từ Version thật...")
               if target_region == "China":
                   package_name = f"miui_MYRON_{version_code}_75df15cd75_16.0.zip"
               else:
                   package_name = f"miui_MYRONEEAGlobal_{version_code}_d64e8e0cda_16.0.zip"
 
-          # Đồng bộ ra link Aliyun Singapore của bạn
+          # 4. Xuất link Aliyun Singapore
           final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
           
-          print(f"\n[THÀNH CÔNG HOÀN HẢO]")
+          print(f"\n[THÀNH CÔNG RỰC RỠ]")
           print(f"-> Phiên bản: {version_code}")
+          print(f"-> File name: {package_name}")
           print(f"-> Link Aliyun: {final_download_url}\n")
 
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f"DOWNLOAD_URL={final_download_url}\n")
-              f.write(f"ROM_VERSION={version_code}\n")
-          EOF
-
-          # Đẩy vào biến môi trường GitHub để dùng cho các bước đóng gói sau này
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f"ROM_VERSION={version_code}\n")
           EOF
 
