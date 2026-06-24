@@ -23,6 +23,9 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Cài đặt thư viện Cào dữ liệu
+        run: pip install requests beautifulsoup4
+
       - name: Cào dữ liệu ROM Myron trực tiếp từ MiRom
         id: scraper
         run: |
