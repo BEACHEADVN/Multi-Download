@@ -40,7 +40,7 @@ jobs:
             exit 1
           fi
 
-      - name: Phân tích vùng và trích xuất link ROM thật
+      - name: Trích xuất tên phiên bản ROM thật từ Web
         id: scraper
         run: |
           python - <<EOF
@@ -50,64 +50,36 @@ jobs:
 
           target_region = "${{ matrix.region }}"
           
-          # Ánh xạ ID neo (Anchor ID) từ Matrix GitHub sang ID trên miuirom.org
-          # China tương ứng href='#China', EEA tương ứng href='#EEA'
+          # Định vị thẻ neo theo cấu trúc menu của miuirom.org
           region_anchor = "#China" if target_region == "China" else "#EEA"
           
-          print(f"--- Đang tìm kiếm liên kết thuộc vùng [{target_region}] với neo [{region_anchor}] ---")
+          print(f"--- Đang trích xuất tên phiên bản ROM cho vùng: {target_region} ---")
 
           with open("phone_page.html", "r", encoding="utf-8") as f:
               html_content = f.read()
 
           soup = BeautifulSoup(html_content, 'html.parser')
-          
-          package_name = ""
           version_code = ""
 
-          # Bước 1: Tìm phiên bản được ghi nhận ở phần menu đầu trang để lấy version_code thật
+          # Tìm đến block danh sách vùng 'region_list' để lấy chữ dữ liệu gốc
           region_list = soup.find('div', class_='region_list')
           if region_list:
               anchors = region_list.find_all('a', href=region_anchor)
               if anchors:
-                  # Lấy text dạng "HyperOS 3.0.306.0.WPMCNXM" và tách lấy phần mã phía sau
                   full_version_text = anchors[0].get_text(strip=True)
+                  # Bỏ chữ 'HyperOS ' đi để lấy phần tên bản ROM nguyên bản
                   if "HyperOS " in full_version_text:
                       version_code = full_version_text.replace("HyperOS ", "").strip()
 
-          # Bước 2: Quét toàn bộ các link trên trang để tìm file .zip gốc từ server Xiaomi khớp với mã vùng
-          links = soup.find_all('a', href=True)
-          for link in links:
-              href = link['href']
-              filename = href.split('/')[-1]
-              
-              # Lọc đúng tệp tin Recovery (.zip) chính thức từ server Xiaomi
-              if filename.endswith('.zip') and ('bigota.d.miui.com' in href or 'hugeota.d.miui.com' in href):
-                  
-                  # So khớp sâu ký tự vùng trong tên file để đảm bảo tính chính xác
-                  if target_region == "China" and "CN" in filename:
-                      package_name = filename
-                      if not version_code: # Dự phòng nếu bước 1 không lấy được
-                          version_code = filename.split('_')[2]
-                      break
-                  elif target_region == "EEA" and ("EU" in filename or "EEA" in filename.upper()):
-                      package_name = filename
-                      if not version_code:
-                          version_code = filename.split('_')[2]
-                      break
-
-          if not package_name or not version_code:
-              print(f"[THẤT BẠI] Không thể bóc tách dữ liệu thật cho vùng {target_region}.")
+          if not version_code:
+              print(f"[THẤT BẠI] Không thể tìm thấy tên phiên bản ROM nào hiển thị cho vùng {target_region}.")
               sys.exit(1)
 
-          # Khớp nối tạo link tải tốc độ cao trên máy chủ Aliyun của bạn
-          final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
-          
-          print(f"\n[THÀNH CÔNG RỰC RỠ]")
-          print(f"-> Phiên bản thật: {version_code}")
-          print(f"-> Tên tệp tin thật: {package_name}")
-          print(f"-> Đường dẫn Aliyun: {final_download_url}\n")
-          
+          print(f"\n[KẾT QUẢ TRÍCH XUẤT THẬT]")
+          print(f"-> Vùng: {target_region}")
+          print(f"-> Tên phiên bản ROM: {version_code}\n")
+
+          # Lưu biến môi trường để các bước sau sử dụng nếu cần
           with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f"DOWNLOAD_URL={final_download_url}\n")
               f.write(f"ROM_VERSION={version_code}\n")
           EOF
