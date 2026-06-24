@@ -26,80 +26,105 @@ jobs:
       - name: Cài đặt thư viện Cào dữ liệu
         run: pip install requests beautifulsoup4
 
-      - name: Lấy link HyperOS chính thức từ API OTA Xiaomi
+      - name: Tải trang HTML bằng curl công khai
+        run: |
+          # Dùng curl với cấu hình User-Agent giả lập Chrome để tránh bị chặn kết nối
+          curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
+               -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
+               -H "Accept-Language: en-US,en;q=0.5" \
+               --max-time 30 \
+               "https://hyperosroms.com/model/myron" > model_page.html
+          
+          # Kiểm tra xem có tải được nội dung thật hay không
+          if [ ! -s model_page.html ] || grep -q "Access denied" model_page.html; then
+            echo "[LỖI] Không thể tải trang hoặc bị Cloudflare chặn IP máy ảo GitHub!"
+            exit 1
+          fi
+
+      - name: Phân tích cú pháp và trích xuất link ROM thật
         id: scraper
         run: |
           python - <<EOF
-          import requests
           import os
-          import json
+          import re
+          import requests
+          from bs4 import BeautifulSoup
 
           target_region = "${{ matrix.region }}"
-          
-          # Thiết lập thông số chính xác cho thiết bị Myron (K90 Pro Max / POCO F8 Ultra)
-          device_code = "myron"
-          region_code = "CN" if target_region == "China" else "EU"
+          target_type = "recovery"
+          base_url = "https://hyperosroms.com"
 
-          # API check update chính thức của Xiaomi
-          api_url = "https://update.miui.com/updates/v1/g_latest_version.php"
-          
-          payload = {
-              "d": device_code,
-              "b": "F",  # F = Stable
-              "r": region_code,
-              "n": "1"
-          }
-          
-          headers = {
-              "User-Agent": "MiuiBrowser/12.12.1",
-              "Content-Type": "application/x-www-form-urlencoded"
-          }
+          print(f"--- Đang phân tích dữ liệu cho vùng: {target_region} ---")
 
-          print(f"Đang kiểm tra dữ liệu OTA cho siêu phẩm Myron vùng {target_region}...")
-          
-          package_name = ""
-          version_code = ""
+          # Đọc file HTML đã tải về bằng curl ở bước trước
+          with open("model_page.html", "r", encoding="utf-8") as f:
+              html_content = f.read()
 
-          try:
-              res = requests.post(api_url, data=payload, headers=headers, timeout=15)
-              
-              if res.status_code == 200 and res.text.strip():
-                  data = res.json()
-                  if "LatestRom" in data:
-                      rom_data = data["LatestRom"]
-                      package_name = rom_data.get("filename", "")
-                      version_code = rom_data.get("version", "")
-              
-              # Ép buộc sử dụng cấu trúc HyperOS 3 gốc (Android 16) nếu API trả về trống
-              if not package_name or not version_code:
-                  print("Kích hoạt Fallback chuẩn hệ thống HyperOS 3.0 (Android 16)...")
-                  if target_region == "China":
-                      version_code = "OS3.0.303.0.WPMCNXM"
-                      package_name = "miui_MYRON_OS3.0.303.0.WPMCNXM_75df15cd75_16.0.zip"
-                  else:
-                      version_code = "OS3.0.303.0.WPMEUXM"
-                      package_name = "miui_MYRONEEAGlobal_OS3.0.303.0.WPMEUXM_d64e8e0cda_16.0.zip"
+          soup = BeautifulSoup(html_content, 'html.parser')
+          rows = soup.find_all('tr')
+          sub_page_url = ""
 
-              # Ghép chuỗi tạo link máy chủ Aliyun Singapore tốc độ cao của bạn
-              final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
-              
-              print(f"\n[THÀNH CÔNG] Luồng [{target_region}]")
-              print(f"-> Hệ điều hành: HyperOS 3 (Android 16)")
-              print(f"-> Phiên bản chuẩn: {version_code}")
-              print(f"-> Link Aliyun: {final_download_url}\n")
-              
-              with open(os.environ['GITHUB_ENV'], 'a') as f:
-                  f.write(f"DOWNLOAD_URL={final_download_url}\n")
-                  f.write(f"ROM_VERSION={version_code}\n")
+          for row in rows:
+              cells = row.find_all('td')
+              if len(cells) >= 5:
+                  region_text = cells[1].get_text(strip=True)
+                  type_text = cells[2].get_text(strip=True).lower()
                   
-          except Exception as e:
-              print(f"Lỗi hệ thống: {e}. Áp dụng fallback HyperOS 3.")
-              version_code = "OS3.0.303.0.WPMCNXM" if target_region == "China" else "OS3.0.303.0.WPMEUXM"
-              package_name = "miui_MYRON_OS3.0.303.0.WPMCNXM_75df15cd75_16.0.zip" if target_region == "China" else "miui_MYRONEEAGlobal_OS3.0.303.0.WPMEUXM_d64e8e0cda_16.0.zip"
-              final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
-              with open(os.environ['GITHUB_ENV'], 'a') as f:
-                  f.write(f"DOWNLOAD_URL={final_download_url}\n")
-                  f.write(f"ROM_VERSION={version_code}\n")
+                  # Khớp chính xác vùng chọn trong Matrix
+                  if region_text.lower() == target_region.lower() and type_text == target_type:
+                      link_tag = cells[0].find('a') or cells[-1].find('a')
+                      if link_tag and 'href' in link_tag.attrs:
+                          href = link_tag['href']
+                          sub_page_url = base_url + href if href.startswith('/') else href
+                          break
+
+          if not sub_page_url:
+              print(f"[THẤT BẠI] Không tìm thấy dòng dữ liệu nào khớp với vùng {target_region} trên trang web.")
+              exit(1)
+
+          print(f"Tìm thấy trang chi tiết: {sub_page_url}")
+
+          # Tiếp tục dùng curl qua session để lấy trang con thông qua Python (hoặc lưu file tương tự)
+          headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+          res_sub = requests.get(sub_page_url, headers=headers, timeout=15)
+          
+          if res_sub.status_code != 200:
+              print(f"[LỖI] Không thể truy cập trang chi tiết: {sub_page_url}")
+              exit(1)
+
+          soup_sub = BeautifulSoup(res_sub.text, 'html.parser')
+          package_name = ""
+          
+          # Trích xuất Package Name (.zip) từ trang chi tiết
+          for li in soup_sub.find_all(['li', 'p']):
+              text = li.get_text()
+              if "Package Name:" in text:
+                  package_name = text.split("Package Name:")[-1].strip()
+                  break
+                  
+          if not package_name:
+              match = re.search(r'([\w-]+\.zip)', res_sub.text)
+              if match:
+                  package_name = match.group(1)
+
+          if not package_name:
+              print("[LỖI] Không thể trích xuất được tên gói cài đặt (.zip) thực tế.")
+              exit(1)
+
+          # Cắt lấy mã phiên bản từ URL trang chi tiết
+          version_code = sub_page_url.split('/')[-1]
+          
+          # Sinh link tải tốc độ cao Aliyun từ dữ liệu thật vừa cào được
+          final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
+          
+          print(f"[THÀNH CÔNG RỰC RỠ]")
+          print(f"-> Version thật: {version_code}")
+          print(f"-> File name thật: {package_name}")
+          print(f"-> Link Aliyun: {final_download_url}")
+          
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f"DOWNLOAD_URL={final_download_url}\n")
+              f.write(f"ROM_VERSION={version_code}\n")
           EOF
 
       - name: Thực hiện tải gói ROM chính thức
