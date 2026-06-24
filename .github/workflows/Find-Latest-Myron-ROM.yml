@@ -26,7 +26,7 @@ jobs:
       - name: Cài đặt thư viện Cào dữ liệu
         run: pip install requests beautifulsoup4
 
-      - name: Lấy dữ liệu ROM thật từ Server OTA Xiaomi
+      - name: Lấy dữ liệu ROM thật từ API Tổng Xiaomi Firmware Updater
         id: scraper
         run: |
           python - <<EOF
@@ -36,51 +36,48 @@ jobs:
 
           target_region = "${{ matrix.region }}"
           
-          # Đặt mã máy (codename) cho Redmi K90 Pro Max / POCO F8 Ultra
+          # Đặt mã máy (codename)
           device_code = "myron"
           
-          # Mã khu vực: CN cho China, EU cho EEA Global
-          region_code = "CN" if target_region == "China" else "EU"
+          # Gọi file JSON tổng hợp tất cả các thiết bị Stable Recovery của XiaomiFirmwareUpdater
+          api_url = "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/stable_recovery.json"
           
-          # Cổng API check OTA chính thức của Xiaomi
-          api_url = f"https://update.miui.com/updates/v1/g_latest_version.php?d={device_code}&b=F&r={region_code}&n=1"
+          print(f"--- Đang truy xuất dữ liệu thật từ API Tổng cho: {device_code} ({target_region}) ---")
           
-          print(f"--- Đang truy vấn trực tiếp Server OTA Xiaomi ({target_region}) ---")
-          print(f"URL: {api_url}")
-          
-          headers = {
-              "User-Agent": "MiuiBrowser/12.12.1"
-          }
-
           try:
-              res = requests.get(api_url, headers=headers, timeout=15)
+              res = requests.get(api_url, timeout=20)
               res.raise_for_status()
-              
-              # Nếu không có dữ liệu hoặc trả về trống
-              if not res.text.strip():
-                  print(f"[THẤT BẠI] Server Xiaomi không trả về dữ liệu ROM nào cho {device_code} ({target_region}).")
-                  sys.exit(1)
-                  
               data = res.json()
-              
-              # Phân tích cấu trúc dữ liệu trả về từ Xiaomi
-              if "LatestRom" in data:
-                  rom_info = data["LatestRom"]
-                  package_name = rom_info.get("filename")
-                  version_code = rom_info.get("version")
-              else:
-                  print(f"[THẤT BẠI] Thiết bị chưa có ROM Public trên server OTA của Xiaomi.")
-                  sys.exit(1)
-                  
           except Exception as e:
-              print(f"[LỖI HỆ THỐNG] Không thể kết nối hoặc phân tích cú pháp từ Xiaomi: {e}")
+              print(f"[LỖI] Không thể tải dữ liệu JSON từ GitHub: {e}")
               sys.exit(1)
-
+              
+          package_name = ""
+          version_code = ""
+          
+          # Duyệt tìm bản ROM tương ứng trong file JSON tổng
+          for item in data:
+              # Lọc đúng codename 'myron'
+              if item.get("codename", "").lower() == device_code:
+                  download_link = item.get("link", item.get("url", ""))
+                  filename = download_link.split("/")[-1] if download_link else ""
+                  
+                  if filename.endswith(".zip"):
+                      # Lọc theo vùng dựa vào ký tự trong tên file ROM HyperOS
+                      if target_region == "China" and "CN" in filename:
+                          package_name = filename
+                          version_code = item.get("version", "")
+                          break
+                      elif target_region == "EEA" and ("EU" in filename or "EEA" in filename.upper()):
+                          package_name = filename
+                          version_code = item.get("version", "")
+                          break
+                          
           if not package_name or not version_code:
-              print("[LỖI] Dữ liệu tên file hoặc phiên bản trả về bị trống.")
+              print(f"[THẤT BẠI] Hiện chưa có dữ liệu ROM thật của {device_code} được index trên hệ thống Tracker.")
               sys.exit(1)
 
-          # Sinh link tải tốc độ cao Aliyun từ dữ liệu thật vừa lấy được
+          # Sinh link tải tốc độ cao Aliyun từ dữ liệu thật
           final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
           
           print(f"\n[THÀNH CÔNG RỰC RỠ]")
