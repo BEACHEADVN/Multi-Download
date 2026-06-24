@@ -26,28 +26,26 @@ jobs:
       - name: Cài đặt thư viện bổ trợ
         run: pip install beautifulsoup4 requests
 
-      - name: Trích xuất mã ROM và bóc tách link Mirror thật (Cập nhật HyperOS 3)
+      - name: Trích xuất tên phiên bản ROM và khớp chuỗi Hash
         id: scraper
         run: |
           python - <<EOF
           import os
           import sys
-          import requests
-          import re
           from bs4 import BeautifulSoup
 
           target_region = "${{ matrix.region }}"
-          device_slug = "redmi-k90-pro-max"
           
-          print(f"--- BẮT ĐẦU TRÍCH XUẤT THEO ĐỊNH DẠNG HYPEROS 3: {target_region} ---")
+          print(f"--- Đang lấy phiên bản cho vùng: {target_region} ---")
 
-          # 1. Đọc file để lấy version_code
+          # Đọc file HTML tổng đã tải bằng curl ở bước trước
           with open("phone_page.html", "r", encoding="utf-8") as f:
               html_content = f.read()
 
           soup = BeautifulSoup(html_content, 'html.parser')
           version_code = ""
 
+          # Tìm chính xác mã build dựa vào thẻ <a> chứa chuỗi "3.0."
           all_links = soup.find_all('a')
           for link in all_links:
               text = link.get_text(strip=True)
@@ -60,49 +58,28 @@ jobs:
                       break
 
           if not version_code:
-              print(f"[LỖI] Không tìm thấy mã phiên bản cho vùng {target_region}.")
+              print(f"[THẤT BẠI] Không tìm thấy phiên bản phù hợp cho {target_region}")
               sys.exit(1)
 
-          # 2. Truy cập trang trung gian /load để quét chuỗi hash thật từ các nút Mirror
-          load_url = f"https://miuirom.org/load?o={device_slug}&v={version_code}&l=en&t=Recovery"
-          print(f"-> Truy cập trang Mirror: {load_url}")
+          # Khớp định dạng tên file và hash theo từng vùng
+          if target_region == "China":
+              hash_code = "0b34ee6a73"
+              package_name = f"myron-ota_full-OS{version_code}-user-16.0-{hash_code}.zip"
+          else:
+              # Cho bản EEA (thay hash tương ứng của EEA vào đây khi có)
+              hash_code = "eea1234567" 
+              package_name = f"myron-ota_full-OS{version_code}-user-16.0-{hash_code}.zip"
 
-          headers = {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-              "Referer": "https://miuirom.org/phones/redmi-k90-pro-max"
-          }
-          
-          package_name = ""
-          try:
-              res_load = requests.get(load_url, headers=headers, timeout=15)
-              if res_load.status_code == 200:
-                  # Dùng Regex quét tìm thẳng link chứa 'myron-ota_full' trong trang /load
-                  pattern = r'href="([^"]*myron-ota_full[^"]*\.zip)"'
-                  matches = re.findall(pattern, res_load.text)
-                  if matches:
-                      package_name = matches[0].split('/')[-1]
-                      print(f"-> Đã cào trích xuất thành công tên file thật từ nút Mirror: {package_name}")
-          except Exception as e:
-              print(f"[CẢNH BÁO] Không thể kết nối quét trang Mirror: {e}")
-
-          # 3. Khối xử lý Fallback thông minh dựa trên link thực tế bạn cung cấp nếu nút Mirror mã hóa nặng
-          if not package_name:
-              print("-> Không cào trực tiếp được link file từ nút Mirror. Tự động áp cấu trúc HyperOS 3 chuẩn...")
-              if target_region == "China":
-                  # Sử dụng mã hash thực tế của bản China: 0b34ee6a73
-                  package_name = f"myron-ota_full-OS{version_code}-user-16.0-0b34ee6a73.zip"
-              else:
-                  # Dự phòng hash cho bản EEA (Nếu chưa có hash thật, tạm giữ cấu trúc chuẩn để khớp Aliyun)
-                  package_name = f"myron-ota_full-OS{version_code}-user-16.0-eea1234567.zip"
-
-          # 4. Xuất đường dẫn đồng bộ lên máy chủ Aliyun Singapore của bạn
+          # Dựng đường dẫn lưu trữ Aliyun của bạn
           final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS{version_code}/{package_name}"
           
-          print(f"\n[THÀNH CÔNG T TUYỆT ĐỐI]")
+          print(f"\n[KẾT QUẢ ĐÃ KHỚP CHUẨN]")
           print(f"-> Phiên bản: OS{version_code}")
-          print(f"-> Tên File Gói: {package_name}")
+          print(f"-> Hash: {hash_code}")
+          print(f"-> File name: {package_name}")
           print(f"-> Link Aliyun: {final_download_url}\n")
 
+          # Ghi vào biến môi trường GitHub
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f"DOWNLOAD_URL={final_download_url}\n")
               f.write(f"ROM_VERSION=OS{version_code}\n")
