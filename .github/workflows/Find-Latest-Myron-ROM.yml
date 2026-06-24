@@ -1,87 +1,141 @@
 name: Tự động tải ROM HyperOS dạng Matrix Song Song
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
 jobs:
-  fetch-and-download:
-    name: Tải ROM ${{ matrix.region }} (Recovery)
-    runs-on: ubuntu-latest
-    
-    # Định nghĩa ma trận chạy song song cho 2 vùng China và EEA
-    strategy:
-      matrix:
-        region: [China, EEA]
-      fail-fast: false # Giúp luồng này không bị dừng nếu luồng kia gặp sự cố
+fetch-and-download:
+name: Tải ROM ${{ matrix.region }}
+runs-on: ubuntu-latest
 
-    steps:
-      - name: Kiểm tra mã nguồn
-        uses: actions/checkout@v4
+```
+strategy:
+  matrix:
+    region: [China, EEA]
+  fail-fast: false
 
-      - name: Thiết lập Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+steps:
+  - name: Checkout
+    uses: actions/checkout@v4
 
-      - name: Cài đặt thư viện bổ trợ
-        run: pip install beautifulsoup4 requests
+  - name: Setup Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: "3.11"
 
-      - name: Trích xuất tên phiên bản ROM và khớp chuỗi Hash
-        id: scraper
-        run: |
-          python - <<EOF
-          import os
-          import sys
-          from bs4 import BeautifulSoup
+  - name: Install dependencies
+    run: |
+      pip install requests beautifulsoup4
 
-          target_region = "${{ matrix.region }}"
-          
-          print(f"--- Đang lấy phiên bản cho vùng: {target_region} ---")
+  - name: Download phone page
+    run: |
+      curl -L \
+        "https://miuirom.org/phones/redmi-k90-pro-max" \
+        -o phone_page.html
 
-          # Đọc file HTML tổng đã tải bằng curl ở bước trước
-          with open("phone_page.html", "r", encoding="utf-8") as f:
-              html_content = f.read()
+  - name: Extract latest ROM URL
+    id: scraper
+    run: |
+      python << 'EOF'
+      import os
+      import re
+      import sys
+      import requests
+      from bs4 import BeautifulSoup
 
-          soup = BeautifulSoup(html_content, 'html.parser')
-          version_code = ""
+      REGION = "${{ matrix.region }}"
 
-          # Tìm chính xác mã build dựa vào thẻ <a> chứa chuỗi "3.0."
-          all_links = soup.find_all('a')
-          for link in all_links:
-              text = link.get_text(strip=True)
-              if text.startswith("3.0."):
-                  if target_region == "China" and "CNXM" in text:
-                      version_code = text
-                      break
-                  elif target_region == "EEA" and "EUXM" in text:
-                      version_code = text
-                      break
+      with open("phone_page.html", "r", encoding="utf-8") as f:
+          html = f.read()
 
-          if not version_code:
-              print(f"[THẤT BẠI] Không tìm thấy phiên bản phù hợp cho {target_region}")
-              sys.exit(1)
+      soup = BeautifulSoup(html, "html.parser")
 
-          # Khớp định dạng tên file và hash theo từng vùng
-          if target_region == "China":
-              hash_code = "0b34ee6a73"
-              package_name = f"myron-ota_full-OS{version_code}-user-16.0-{hash_code}.zip"
-          else:
-              # Cho bản EEA (thay hash tương ứng của EEA vào đây khi có)
-              hash_code = "eea1234567" 
-              package_name = f"myron-ota_full-OS{version_code}-user-16.0-{hash_code}.zip"
+      target_keyword = "CNXM" if REGION == "China" else "EUXM"
 
-          # Dựng đường dẫn lưu trữ Aliyun của bạn
-          final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS{version_code}/{package_name}"
-          
-          print(f"\n[KẾT QUẢ ĐÃ KHỚP CHUẨN]")
-          print(f"-> Phiên bản: OS{version_code}")
-          print(f"-> Hash: {hash_code}")
-          print(f"-> File name: {package_name}")
-          print(f"-> Link Aliyun: {final_download_url}\n")
+      found_download_page = None
 
-          # Ghi vào biến môi trường GitHub
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f"DOWNLOAD_URL={final_download_url}\n")
-              f.write(f"ROM_VERSION=OS{version_code}\n")
-          EOF
+      for a in soup.find_all("a", href=True):
+          href = a["href"]
 
+          if target_keyword not in str(a):
+              continue
+
+          if "download" in href.lower():
+              found_download_page = href
+              break
+
+      if not found_download_page:
+          for a in soup.find_all("a", href=True):
+              href = a["href"]
+
+              if target_keyword in href:
+                  found_download_page = href
+                  break
+
+      if not found_download_page:
+          print(f"[ERROR] Không tìm thấy link cho {REGION}")
+          sys.exit(1)
+
+      if found_download_page.startswith("/"):
+          found_download_page = (
+              "https://miuirom.org" + found_download_page
+          )
+
+      print("Download page:")
+      print(found_download_page)
+
+      response = requests.get(
+          found_download_page,
+          allow_redirects=True,
+          timeout=60
+      )
+
+      final_url = response.url
+
+      print("Final URL:")
+      print(final_url)
+
+      version_match = re.search(
+          r'OS([0-9.]+(?:CNXM|EUXM))',
+          final_url
+      )
+
+      version = (
+          version_match.group(1)
+          if version_match
+          else "UNKNOWN"
+      )
+
+      filename = final_url.split("/")[-1]
+
+      print(f"Version : {version}")
+      print(f"Filename: {filename}")
+
+      with open(os.environ["GITHUB_ENV"], "a") as env:
+          env.write(f"DOWNLOAD_URL={final_url}\n")
+          env.write(f"ROM_VERSION=OS{version}\n")
+          env.write(f"ROM_FILENAME={filename}\n")
+      EOF
+
+  - name: Show ROM info
+    run: |
+      echo "Version : $ROM_VERSION"
+      echo "Filename: $ROM_FILENAME"
+      echo "URL     : $DOWNLOAD_URL"
+
+  - name: Download ROM
+    run: |
+      aria2c \
+        -x16 \
+        -s16 \
+        -k1M \
+        "$DOWNLOAD_URL" \
+        -o "$ROM_FILENAME"
+
+  - name: Upload artifact
+    uses: actions/upload-artifact@v4
+    with:
+      name: ${{ matrix.region }}-${{ env.ROM_VERSION }}
+      path: ${{ env.ROM_FILENAME }}
+      retention-days: 5
+```
