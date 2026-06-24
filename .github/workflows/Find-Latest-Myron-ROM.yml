@@ -40,31 +40,74 @@ jobs:
             exit 1
           fi
 
-      - name: Kiểm tra sự tồn tại của từ khóa trong mã nguồn
+      - name: Phân tích vùng và trích xuất link ROM thật
+        id: scraper
         run: |
-          echo "=== 1. KIỂM TRA TỪ KHÓA 'CHINA' ==="
-          if grep -qi "china" phone_page.html; then
-            echo "-> TÌM THẤY chữ 'China'. Dưới đây là các dòng chứa từ khóa:"
-            grep -in "china" phone_page.html | head -n 10
-          else
-            echo "-> KHÔNG TÌM THẤY chữ 'China' nào."
-          fi
-          
-          echo -e "\n=========================================\n"
-          
-          echo "=== 2. KIỂM TRA TỪ KHÓA 'EUROPE' ==="
-          if grep -qi "europe" phone_page.html; then
-            echo "-> TÌM THẤY chữ 'Europe'. Dưới đây là các dòng chứa từ khóa:"
-            grep -in "europe" phone_page.html | head -n 10
-          else
-            echo "-> KHÔNG TÌM THẤY chữ 'Europe' nào."
-          fi
+          python - <<EOF
+          import os
+          import sys
+          from bs4 import BeautifulSoup
 
-          echo -e "\n=========================================\n"
+          target_region = "${{ matrix.region }}"
           
-          echo "=== 3. KIỂM TRA TỪ KHÓA 'HYPEROS' ==="
-          if grep -qi "hyperos" phone_page.html; then
-            echo "-> TÌM THẤY chữ 'HyperOS'."
-          else
-            echo "-> KHÔNG TÌM THẤY chữ 'HyperOS'."
-          fi
+          # Ánh xạ ID neo (Anchor ID) từ Matrix GitHub sang ID trên miuirom.org
+          # China tương ứng href='#China', EEA tương ứng href='#EEA'
+          region_anchor = "#China" if target_region == "China" else "#EEA"
+          
+          print(f"--- Đang tìm kiếm liên kết thuộc vùng [{target_region}] với neo [{region_anchor}] ---")
+
+          with open("phone_page.html", "r", encoding="utf-8") as f:
+              html_content = f.read()
+
+          soup = BeautifulSoup(html_content, 'html.parser')
+          
+          package_name = ""
+          version_code = ""
+
+          # Bước 1: Tìm phiên bản được ghi nhận ở phần menu đầu trang để lấy version_code thật
+          region_list = soup.find('div', class_='region_list')
+          if region_list:
+              anchors = region_list.find_all('a', href=region_anchor)
+              if anchors:
+                  # Lấy text dạng "HyperOS 3.0.306.0.WPMCNXM" và tách lấy phần mã phía sau
+                  full_version_text = anchors[0].get_text(strip=True)
+                  if "HyperOS " in full_version_text:
+                      version_code = full_version_text.replace("HyperOS ", "").strip()
+
+          # Bước 2: Quét toàn bộ các link trên trang để tìm file .zip gốc từ server Xiaomi khớp với mã vùng
+          links = soup.find_all('a', href=True)
+          for link in links:
+              href = link['href']
+              filename = href.split('/')[-1]
+              
+              # Lọc đúng tệp tin Recovery (.zip) chính thức từ server Xiaomi
+              if filename.endswith('.zip') and ('bigota.d.miui.com' in href or 'hugeota.d.miui.com' in href):
+                  
+                  # So khớp sâu ký tự vùng trong tên file để đảm bảo tính chính xác
+                  if target_region == "China" and "CN" in filename:
+                      package_name = filename
+                      if not version_code: # Dự phòng nếu bước 1 không lấy được
+                          version_code = filename.split('_')[2]
+                      break
+                  elif target_region == "EEA" and ("EU" in filename or "EEA" in filename.upper()):
+                      package_name = filename
+                      if not version_code:
+                          version_code = filename.split('_')[2]
+                      break
+
+          if not package_name or not version_code:
+              print(f"[THẤT BẠI] Không thể bóc tách dữ liệu thật cho vùng {target_region}.")
+              sys.exit(1)
+
+          # Khớp nối tạo link tải tốc độ cao trên máy chủ Aliyun của bạn
+          final_download_url = f"https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/{version_code}/{package_name}"
+          
+          print(f"\n[THÀNH CÔNG RỰC RỠ]")
+          print(f"-> Phiên bản thật: {version_code}")
+          print(f"-> Tên tệp tin thật: {package_name}")
+          print(f"-> Đường dẫn Aliyun: {final_download_url}\n")
+          
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f"DOWNLOAD_URL={final_download_url}\n")
+              f.write(f"ROM_VERSION={version_code}\n")
+          EOF
