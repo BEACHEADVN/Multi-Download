@@ -78,32 +78,39 @@ jobs:
 
           node get_rom.js
 
-      # ===== DOWNLOAD =====
-      - name: Download ROM
+      # ===== CHECK HISTORY (NEW FIX) =====
+      - name: Check Duplicate and File Existence
+        id: check
         run: |
           URL=$(cat rom_url.txt)
           NAME=$(cat rom_name.txt)
-
           FILE="${NAME}.7z"
           echo "FILE=$FILE" >> $GITHUB_ENV
 
-          wget -O "$FILE" "$URL"
+          touch rom_uploaded.txt
+          
+          # Kiểm tra xem tên file đã tồn tại trong file lịch sử chưa
+          if grep -q "^${FILE}|" rom_uploaded.txt; then
+            echo "⚡ ROM này đã được upload trước đó. Bỏ qua!"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "🆕 Phát hiện ROM mới, chuẩn bị tải..."
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ===== DOWNLOAD =====
+      - name: Download ROM
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          URL=$(cat rom_url.txt)
+          wget -O "${{ env.FILE }}" "$URL"
 
       # ===== TOOLS =====
       - name: Install tools
+        if: steps.check.outputs.skip != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y p7zip-full jq curl
-
-      # ===== CHECK FILE =====
-      - name: Check file
-        id: check
-        run: |
-          if [ ! -f "${{ env.FILE }}" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
 
       # ===== SPLIT LARGE FILE =====
       - name: Split Large File
@@ -111,7 +118,6 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         run: |
           FILE="${{ env.FILE }}"
-
           SIZE=$(stat -c%s "$FILE")
           LIMIT=$((9 * 1024 * 1024 * 1024))
 
@@ -159,7 +165,7 @@ jobs:
             -d text="$TEXT" \
             -d parse_mode="HTML"
 
-      # ===== SAVE STATE (FIXED 403) =====
+      # ===== SAVE STATE =====
       - name: Save State
         if: steps.check.outputs.skip != 'true'
         env:
@@ -177,7 +183,7 @@ jobs:
       
             touch rom_uploaded.txt
       
-            # xóa dòng cũ của file này
+            # xóa dòng cũ của file này nếu có
             sed -i "\|^$FILE|d" rom_uploaded.txt
       
             # thêm dòng mới
@@ -194,4 +200,4 @@ jobs:
             sleep 3
           done
       
-          exit 1
+          exit
