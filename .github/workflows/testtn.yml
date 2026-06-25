@@ -78,9 +78,11 @@ jobs:
 
           node get_rom.js
 
-      # ===== CHECK HISTORY & PIXELDRAIN ALIVE (FIXED) =====
+      # ===== CHECK HISTORY & CLEANUP DEAD LINKS (FIXED) =====
       - name: Check Duplicate and Pixeldrain Status
         id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           URL=$(cat rom_url.txt)
           NAME=$(cat rom_name.txt)
@@ -90,14 +92,12 @@ jobs:
           touch rom_uploaded.txt
           
           # Lấy ID cũ từ file rom_uploaded.txt (nếu có)
-          # Định dạng file: Tên_File|ID_Pixeldrain
           OLD_ID=$(grep "^${FILE}|" rom_uploaded.txt | cut -d'|' -f2)
 
           if [ -n "$OLD_ID" ]; then
-            echo "🔎 Tìm thấy lịch sử upload file này với Pixeldrain ID: $OLD_ID"
+            echo "🔎 Tìm thấy lịch sử với Pixeldrain ID: $OLD_ID"
             echo "⚡ Đang kiểm tra trạng thái file trên Pixeldrain..."
             
-            # Gọi API Pixeldrain lấy thông tin file
             PD_CHECK=$(curl -s "https://pixeldrain.com/api/file/${OLD_ID}/info")
             PD_STATUS=$(echo "$PD_CHECK" | jq -r '.success')
 
@@ -107,8 +107,25 @@ jobs:
               echo "ids=$OLD_ID" >> $GITHUB_OUTPUT
               echo "link=https://pixeldrain.com/u/$OLD_ID" >> $GITHUB_OUTPUT
             else
-              echo "❌ File từng upload nhưng ĐÃ BỊ XÓA trên Pixeldrain. Sẽ tiến hành tải và upload lại bản mới!"
+              echo "❌ File ĐÃ BỊ XÓA trên Pixeldrain. Tiến hành xóa dòng lỗi trong lịch sử và chuẩn bị tải lại..."
               echo "skip=false" >> $GITHUB_OUTPUT
+
+              # Tiến hành xóa dòng chết ngay lập tức và đẩy lên Git để chặn các runner sau đọc nhầm
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              
+              for i in {1..5}; do
+                git fetch origin main
+                git reset --hard origin/main
+                
+                # Xóa dòng cũ dựa trên tên file chính xác (tránh lỗi ký tự đặc biệt bằng cách dùng dấu @ thay vì / trong sed)
+                sed -i "\|^${FILE}|d" rom_uploaded.txt
+                
+                git add rom_uploaded.txt
+                git commit -m "Cleanup dead Pixeldrain link for: $FILE" || true
+                git push https://x-access-token:${GITHUB_TOKEN}@github.com/BEACHEADVN/Multi-Download.git main && break
+                sleep 3
+              done
             fi
           else
             echo "🆕 ROM mới hoàn toàn, chưa từng được ghi nhận."
@@ -172,8 +189,6 @@ jobs:
         run: |
           FILE="${{ env.FILE }}"
           HYPERTN=$(cat rom_url.txt)
-          
-          # Ưu tiên lấy link vừa mới upload, nếu skip=true thì lấy link cũ từ bước check
           PIXEL="${{ steps.pd.outputs.link || steps.check.outputs.link }}"
 
           TEXT="<b>🚀 HyperTN MYRON ROM</b>%0A%0A📦 <code>$FILE</code>%0A%0A🔗 <b>HyperTN:</b> <a href=\"$HYPERTN\">Direct Download</a>%0A💾 <b>Pixeldrain:</b> <a href=\"$PIXEL\">Mirror Link</a>"
@@ -202,13 +217,13 @@ jobs:
       
             touch rom_uploaded.txt
       
-            # xóa dòng cũ chứa file này (để cập nhật ID Pixeldrain mới)
-            sed -i "\|^$FILE|d" rom_uploaded.txt
+            # Xóa dòng cũ (để chắc chắn không bị trùng lặp)
+            sed -i "\|^${FILE}|d" rom_uploaded.txt
       
-            # thêm dòng mới
+            # Thêm dòng mới kèm ID vừa tạo thành công
             echo "$FILE|$IDS" >> rom_uploaded.txt
       
-            # SORT THEO TÊN FILE
+            # Sắp xếp lại file
             sort -t'|' -k1,1 rom_uploaded.txt -o rom_uploaded.txt
       
             git add rom_uploaded.txt
