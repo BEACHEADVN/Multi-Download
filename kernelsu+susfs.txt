@@ -1,16 +1,16 @@
-Release: r4
+Release: r5
 5.15.167-android13-2024-11-AnyKernel3.zip
-Dung lượng: 39.68 MB
-Cập nhật: 06/06/2026 05:35
+Dung lượng: 39.74 MB
+Cập nhật: 25/06/2026 11:54
 5.15.170-android13-2025-01-AnyKernel3.zip
-Dung lượng: 39.70 MB
-Cập nhật: 06/06/2026 05:35
-5.15.178-android13-2025-03-AnyKernel3.zip
 Dung lượng: 39.75 MB
-Cập nhật: 06/06/2026 05:35
+Cập nhật: 25/06/2026 11:54
+5.15.178-android13-2025-03-AnyKernel3.zip
+Dung lượng: 39.80 MB
+Cập nhật: 25/06/2026 11:54
 5.15.189-android13-2025-09-AnyKernel3.zip
-Dung lượng: 39.82 MB
-Cập nhật: 06/06/2026 05:35
+Dung lượng: 39.88 MB
+Cập nhật: 25/06/2026 11:54
 6.12.23-android16-2025-06-AnyKernel3.zip
-Dung lượng: 34.23 MB
-Cập nhật: 06/06/2026 05:35
+Dung lượng: 34.28 MB
+Cập nhật: 25/06/2026 11:54
