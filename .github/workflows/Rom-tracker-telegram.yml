@@ -81,34 +81,24 @@ jobs:
       - name: Install aria2
         run: sudo apt-get update && sudo apt-get install -y aria2
 
-      - name: Download Recovery ROMs with aria2
+      - name: Download Official Recovery ROM with aria2
         run: |
-          # 1. Trích xuất link từ file myron.json
+          # 1. Trích xuất duy nhất link Official từ file myron.json
           OFFICIAL_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
-          MIRROR_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['mirror'])")
           
           mkdir -p downloads
           
           echo "=================================================="
-          echo "STARTING DOWNLOAD WITH ARIA2 (16 THREADS)"
+          echo "STARTING DOWNLOAD OFFICIAL ROM WITH ARIA2"
           echo "=================================================="
           
-          # Tải link Official
+          # Tiến hành tải nếu link tồn tại
           if [ "$OFFICIAL_URL" != "None" ] && [ ! -z "$OFFICIAL_URL" ]; then
-            echo "📥 Downloading Official Recovery ROM..."
+            echo "📥 Downloading Official Recovery ROM (16 Threads)..."
             aria2c -x 16 -s 16 -d downloads/ "$OFFICIAL_URL"
           else
-            echo "❌ Official URL is empty."
-          fi
-          
-          echo "--------------------------------------------------"
-          
-          # Tải link Mirror
-          if [ "$MIRROR_URL" != "None" ] && [ ! -z "$MIRROR_URL" ]; then
-            echo "📥 Downloading Mirror Recovery ROM..."
-            aria2c -x 16 -s 16 -d downloads/ "$MIRROR_URL"
-          else
-            echo "❌ Mirror URL is empty."
+            echo "❌ Official URL is empty or not found."
+            exit 1
           fi
           
           echo "=================================================="
