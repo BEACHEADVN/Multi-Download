@@ -78,37 +78,42 @@ jobs:
         run: |
           python .github/workflows/telegram/hyperos.py
 
-      - name: Test Download Speed (Recovery Links)
+      - name: Download Recovery ROMs
         run: |
-          # 1. Trích xuất link Official từ file myron.json vừa tạo
+          # 1. Trích xuất link từ file myron.json
           OFFICIAL_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
-          
-          # 2. Trích xuất link Mirror từ file myron.json
           MIRROR_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['mirror'])")
           
+          # Tạo thư mục chứa file tải về
+          mkdir -p downloads
+          
           echo "=================================================="
-          echo "TESTING DOWNLOAD SPEED FROM GITHUB ACTIONS RUNNER"
+          echo "STARTING DOWNLOAD"
           echo "=================================================="
           
-          # Test link Official (Giới hạn tải 50MB để test tốc độ nhanh, tránh nghẽn workflow)
-          if [ "$OFFICIAL_URL" != "None" ]; then
-            echo "👉 Testing Official Recovery Server..."
-            curl -L -G --max-filesize 52428800 -o /dev/null --speed-time 10 --speed-limit 1 "$OFFICIAL_URL" 2>&1 | tail -n 5
+          # Tải link Official
+          if [ "$OFFICIAL_URL" != "None" ] && [ ! -z "$OFFICIAL_URL" ]; then
+            echo "📥 Downloading Official Recovery ROM..."
+            # Tải và lưu vào thư mục downloads/
+            wget -c -P downloads/ "$OFFICIAL_URL"
           else
-            echo "❌ Official URL not found."
+            echo "❌ Official URL is empty."
           fi
           
           echo "--------------------------------------------------"
           
-          # Test link Mirror
-          if [ "$MIRROR_URL" != "None" ]; then
-            echo "👉 Testing Mirror Recovery Server..."
-            curl -L -G --max-filesize 52428800 -o /dev/null --speed-time 10 --speed-limit 1 "$MIRROR_URL" 2>&1 | tail -n 5
+          # Tải link Mirror
+          if [ "$MIRROR_URL" != "None" ] && [ ! -z "$MIRROR_URL" ]; then
+            echo "📥 Downloading Mirror Recovery ROM..."
+            wget -c -P downloads/ "$MIRROR_URL"
           else
-            echo "❌ Mirror URL not found."
+            echo "❌ Mirror URL is empty."
           fi
-          echo "=================================================="   
-
+          
+          echo "=================================================="
+          echo "Danh sách file đã tải thành công:"
+          ls -lh downloads/
+          
       - name: Commit changes
         run: |
           if git diff --quiet; then
