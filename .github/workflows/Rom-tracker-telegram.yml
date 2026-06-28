@@ -81,6 +81,1071 @@ jobs:
       - name: Install aria2
         run: sudo apt-get update && sudo apt-get install -y aria2
 
+      Trò chuyện với Gemini
+Run python .github/workflows/telegram/hyperos.py
+
+python .github/workflows/telegram/hyperos.py
+
+shell: /usr/bin/bash -e {0}
+
+env:
+
+pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+
+PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+
+Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+
+Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+
+Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+
+LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+
+
+Traceback (most recent call last):
+
+File "/home/runner/work/Multi-Download/Multi-Download/.github/workflows/telegram/hyperos.py", line 197, in <module>
+
+with client:
+
+^^^^^^
+
+File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/telethon/helpers.py", line 219, in _sync_enter
+
+return loop.run_until_complete(self.__aenter__())
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+
+return future.result()
+
+^^^^^^^^^^^^^^^
+
+File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/telethon/client/auth.py", line 669, in __aenter__
+
+return await self.start()
+
+^^^^^^^^^^^^^^^^^^
+
+File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/telethon/client/auth.py", line 167, in _start
+
+value = phone()
+
+^^^^^^^
+
+File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/telethon/client/auth.py", line 22, in <lambda>
+
+phone: typing.Union[typing.Callable[[], str], str] = lambda: input('Please enter your phone (or bot token): '),
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+EOFError: EOF when reading a line
+
+Please enter your phone (or bot token):
+
+Error: Process completed with exit code 1.
+
+
+
+import re
+
+import json
+
+from telethon import TelegramClient
+
+from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl
+
+
+
+# ==========================
+
+# CONFIG
+
+# ==========================
+
+
+
+api_id = 33413032
+
+api_hash = "88a4ee92ce485b73acd6c10db41be4d0"
+
+
+
+CHANNEL = "TECH_MUKUL"
+
+
+
+client = TelegramClient("telegram_session", api_id, api_hash)
+
+
+
+
+
+# ==========================
+
+# FUNCTIONS
+
+# ==========================
+
+
+
+def find(pattern, text, flags=0):
+
+    m = re.search(pattern, text, flags)
+
+    return m.group(1).strip() if m else None
+
+
+
+
+
+def version_key(version):
+
+    m = re.search(
+
+        r"OS(\d+)\.(\d+)\.(\d+)\.(\d+)",
+
+        version or ""
+
+    )
+
+
+
+    if not m:
+
+        return (0, 0, 0, 0)
+
+
+
+    return tuple(map(int, m.groups()))
+
+
+
+
+
+# ==========================
+
+# MAIN
+
+# ==========================
+
+
+
+async def main():
+
+
+
+    entity = await client.get_entity(CHANNEL)
+
+
+
+    posts = []
+
+
+
+    async for msg in client.iter_messages(
+
+        entity,
+
+        search="myron",
+
+        limit=20
+
+    ):
+
+
+
+        text = msg.text or ""
+
+
+
+        version = find(
+
+            r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)",
+
+            text
+
+        )
+
+
+
+        if version:
+
+            posts.append({
+
+                "version": version,
+
+                "msg": msg,
+
+                "key": version_key(version)
+
+            })
+
+
+
+    if not posts:
+
+        print("Không tìm thấy ROM.")
+
+        return
+
+
+
+    newest = max(posts, key=lambda x: x["key"])
+
+
+
+    msg = newest["msg"]
+
+    text = msg.text or ""
+
+
+
+    data = {
+
+        "device": None,
+
+        "codename": "myron",
+
+        "version": newest["version"],
+
+        "android": find(r"Android:\s*(\d+)", text),
+
+        "status": find(r"Status:\s*(.+)", text),
+
+        "security_patch": find(r"Security Patch:\s*(.+)", text),
+
+        "release": find(r"Release:\s*(.+)", text),
+
+        "size": find(
+
+            r"Update package size:\s*([0-9.]+\s*[MG]B)",
+
+            text
+
+        ),
+
+        "telegram_post": f"https://t.me/{CHANNEL}/{msg.id}",
+
+        "telegram_id": msg.id,
+
+        "date": str(msg.date)
+
+    }
+
+
+
+    # ==========================
+
+    # DEVICE
+
+    # ==========================
+
+
+
+    clean = text
+
+
+
+    # bỏ markdown
+
+    clean = clean.replace("**", "")
+
+    clean = clean.replace("__", "")
+
+    clean = clean.replace("`", "")
+
+
+
+    hashtags = re.findall(r"#([A-Za-z0-9]+)", clean)
+
+
+
+    ignore = {
+
+        "HyperOS",
+
+        "HyperOS2",
+
+        "HyperOS3",
+
+        "China",
+
+        "India",
+
+        "Europe",
+
+        "EEA",
+
+        "Global",
+
+        "Update",
+
+        "Released",
+
+        "Release",
+
+        "Full",
+
+        "MiPilot",
+
+        "Myron"
+
+    }
+
+
+
+    for tag in hashtags:
+
+        if tag not in ignore:
+
+            data["device"] = tag
+
+            break
+
+
+
+    # ==========================
+
+    # URLS
+
+    # ==========================
+
+
+
+    urls = []
+
+
+
+    if msg.entities:
+
+
+
+        for entity in msg.entities:
+
+
+
+            url = None
+
+
+
+            if isinstance(entity, MessageEntityTextUrl):
+
+                url = entity.url
+
+
+
+            elif isinstance(entity, MessageEntityUrl):
+
+                url = clean[
+
+                    entity.offset:
+
+                    entity.offset + entity.length
+
+                ]
+
+
+
+            if url:
+
+                urls.append(url)
+
+
+
+    rom_urls = [
+
+        u for u in urls
+
+        if any(x in u for x in (
+
+            "cdnorg",
+
+            "cdnor",
+
+            "bigota",
+
+            "miui"
+
+        ))
+
+    ]
+
+
+
+    data["downloads"] = {
+
+        "recovery": {
+
+            "official": rom_urls[0] if len(rom_urls) > 0 else None,
+
+            "mirror": rom_urls[1] if len(rom_urls) > 1 else None
+
+        },
+
+        "fastboot": {
+
+            "official": rom_urls[2] if len(rom_urls) > 2 else None,
+
+            "mirror": rom_urls[3] if len(rom_urls) > 3 else None
+
+        }
+
+    }
+
+
+
+    print(json.dumps(
+
+        data,
+
+        indent=4,
+
+        ensure_ascii=False
+
+    ))
+
+
+
+    with open(
+
+        "myron.json",
+
+        "w",
+
+        encoding="utf-8"
+
+    ) as f:
+
+        json.dump(
+
+            data,
+
+            f,
+
+            indent=4,
+
+            ensure_ascii=False
+
+        )
+
+
+
+    print()
+
+    print("Saved -> myron.json")
+
+
+
+
+
+with client:
+
+    client.loop.run_until_complete(main())
+
+Lỗi EOFError: EOF when reading a line xảy ra do script Telethon của bạn đang cố gắng chạy chế độ đăng nhập tương tác (yêu cầu nhập số điện thoại hoặc mã OTP từ bàn phím qua hàm input()). Khi chạy trên GitHub Actions (môi trường tự động hóa - phi tương tác), không có ai nhập dữ liệu nên hệ thống ném ra lỗi EOF.
+
+Để sửa lỗi này, bạn cần sử dụng một file session (telegram_session.session) đã được đăng nhập sẵn từ trước ở máy cá nhân (Local), sau đó đưa file đó lên GitHub.
+
+Cách khắc phục chi tiết
+Bước 1: Tạo file session ở máy cá nhân
+Bạn hãy copy code Python hiện tại về máy tính cá nhân của mình và chạy nó một lần.
+
+Lúc này Terminal trên máy bạn sẽ hiện: Please enter your phone (or bot token): 
+
+Nhập số điện thoại (định dạng quốc tế, ví dụ +84...).
+
+Nhập mã OTP gửi về ứng dụng Telegram của bạn.
+
+Sau khi script chạy xong thành công, bạn sẽ thấy một file mới xuất hiện trong thư mục có tên là: telegram_session.session.
+
+Bước 2: Mã hóa file session thành chuỗi Base64
+Vì file .session chứa dữ liệu đăng nhập nhạy cảm (SQLite database), bạn không được commit trực tiếp nó lên GitHub Repository công khai. Hãy chuyển nó thành chuỗi text mã hóa:
+
+Nếu dùng Linux / macOS:
+
+Bash
+base64 -w 0 telegram_session.session > session_base64.txt
+Nếu dùng Windows (PowerShell):
+
+PowerShell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("telegram_session.session")) > session_base64.txt
+Mở file session_base64.txt và copy toàn bộ chuỗi text dài bên trong.
+
+Bước 3: Cấu hình GitHub Secrets
+Vào GitHub Repository của bạn -> Settings -> Secrets and variables -> Actions.
+
+Nhấn New repository secret.
+
+Đặt tên (Name) là: TELEGRAM_SESSION
+
+Dán chuỗi text Base64 vừa copy ở Bước 2 vào ô Secret.
+
+Bước 4: Sửa file Workflow .github/workflows/... (YAML)
+Trước khi chạy script Python, bạn cần giải mã chuỗi Base64 đó ngược lại thành file telegram_session.session để Telethon đọc.
+
+Thêm bước giải mã vào file YAML của bạn (ngay trước bước chạy python):
+
+YAML
+    - name: Khôi phục file Telegram Session
+      env:
+        TELEGRAM_SESSION_BASE64: ${{ secrets.TELEGRAM_SESSION }}
+      run: |
+        echo "$TELEGRAM_SESSION_BASE64" | base64 -d > telegram_session.session
+
+    - name: Run python .github/workflows/telegram/hyperos.py
+      run: python .github/workflows/telegram/hyperos.py
+Như vậy, khi Telethon khởi chạy, nó sẽ tự động nhận diện file telegram_session.session hợp lệ đã có sẵn và bỏ qua bước bắt nhập số điện thoại, giúp workflow chạy mượt mà mà không bị lỗi tương tác nữa.
+
+Nhìn vào danh sách GitHub Secrets của bạn, mình thấy bạn đã thêm đầy đủ TELEGRAM_SESSION (cùng với API_ID và API_HASH).
+
+Tuy nhiên, lỗi EOFError: EOF when reading a line ở bước trước vẫn xảy ra vì file script Python chưa đọc được session đó, dẫn đến việc Telethon cố gắng đòi nhập số điện thoại qua console.
+
+Để giải quyết triệt để, bạn cần thực hiện 2 thay đổi nhỏ sau trong code và file workflow:
+
+1. Cập nhật lại file Python (hyperos.py)
+Hiện tại trong code của bạn đang fix cứng API_ID và API_HASH, đồng thời chưa cấu hình để Telethon tự động lấy chuỗi session từ môi trường nếu chạy trên GitHub. Hãy sửa lại đoạn đầu của file Python như sau:
+
+Python
+import os
+import re
+import json
+from telethon import TelegramClient
+from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl
+from telethon.sessions import StringSession
+
+# ==========================
+# CONFIG
+# ==========================
+
+# Lấy thông tin từ Environment Variables (GitHub Actions sẽ truyền vào)
+api_id = int(os.environ.get("API_ID", 33413032))
+api_hash = os.environ.get("API_HASH", "88a4ee92ce485b73acd6c10db41be4d0")
+session_string = os.environ.get("TELEGRAM_SESSION", "")
+
+CHANNEL = "TECH_MUKUL"
+
+# Nếu có session_string (chạy trên GitHub), dùng StringSession. 
+# Nếu không (chạy thử ở máy cá nhân), dùng file session tĩnh như cũ.
+if session_string:
+    client = TelegramClient(StringSession(session_string), api_id, api_hash)
+else:
+    client = TelegramClient("telegram_session", api_id, api_hash)
+Lưu ý quan trọng về giá trị TELEGRAM_SESSION: > Định dạng chuẩn nhất khi chạy GitHub Actions cho Telethon là sử dụng StringSession (một chuỗi text thuần dài bắt đầu bằng mã session) thay vì mã hóa dạng file Base64.
+Nếu giá trị TELEGRAM_SESSION hiện tại trong hình của bạn được tạo từ phương pháp mã hóa file (.session chuyển sang Base64), bạn bắt buộc phải dùng bước giải mã file ở mục số 2 dưới đây.
+
+2. Cập nhật file Workflow GitHub (.github/workflows/...yaml)
+Bạn cần truyền các Repository Secrets hiển thị trong ảnh vào làm biến môi trường (env) thì script Python mới đọc được.
+
+Trường hợp A: Nếu TELEGRAM_SESSION của bạn là "StringSession" (Khuyên dùng)
+Sửa bước chạy Python trong file .yaml thành:
+
+YAML
+    - name: Run python .github/workflows/telegram/hyperos.py
+      env:
+        API_ID: ${{ secrets.API_ID }}
+        API_HASH: ${{ secrets.API_HASH }}
+        TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+      run: python .github/workflows/telegram/hyperos.py
+Trường hợp B: Nếu TELEGRAM_SESSION của bạn là File mã hóa Base64
+Nếu bạn làm theo cách tạo file .session rồi đổi sang text Base64, hãy sửa file .yaml như sau (giữ nguyên code gốc không cần sửa mục số 1):
+
+YAML
+    - name: Khôi phục file Telegram Session từ Base64
+      env:
+        TELEGRAM_SESSION_BASE64: ${{ secrets.TELEGRAM_SESSION }}
+      run: |
+        echo "$TELEGRAM_SESSION_BASE64" | base64 -d > telegram_session.session
+
+    - name: Run python .github/workflows/telegram/hyperos.py
+      env:
+        API_ID: ${{ secrets.API_ID }}
+        API_HASH: ${{ secrets.API_HASH }}
+      run: python .github/workflows/telegram/hyperos.py
+Bạn hãy kiểm tra lại xem chuỗi TELEGRAM_SESSION bạn đang lưu thuộc loại nào và áp dụng cấu hình tương ứng nhé!
+
+name: HyperOS ROM Tracker
+
+
+
+on:
+
+  workflow_dispatch:
+
+  schedule:
+
+    - cron: "*/30 * * * *"
+
+
+
+permissions:
+
+  contents: write
+
+
+
+concurrency:
+
+  group: hyperos-tracker
+
+  cancel-in-progress: false
+
+
+
+jobs:
+
+  update:
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 20
+
+
+
+    steps:
+
+      - name: Checkout repository
+
+        uses: actions/checkout@v4
+
+
+
+      - name: Setup Python
+
+        uses: actions/setup-python@v5
+
+        with:
+
+          python-version: "3.12"
+
+
+
+      - name: Cache pip
+
+        uses: actions/cache@v4
+
+        with:
+
+          path: ~/.cache/pip
+
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+          restore-keys: |
+
+            pip-${{ runner.os }}-
+
+
+
+      - name: Install dependencies
+
+        run: |
+
+          python -m pip install --upgrade pip
+
+
+
+          if [ -f requirements.txt ]; then
+
+            pip install -r requirements.txt
+
+          else
+
+            pip install telethon
+
+          fi
+
+
+
+      - name: Restore Telegram Session
+
+        env:
+
+          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+
+        run: |
+
+          if [ -z "$TELEGRAM_SESSION" ]; then
+
+            echo "Missing TELEGRAM_SESSION secret"
+
+            exit 1
+
+          fi
+
+
+
+          echo "$TELEGRAM_SESSION" | base64 -d > telegram.session
+
+
+
+      - name: Create config.json
+
+        env:
+
+          API_ID: ${{ secrets.API_ID }}
+
+          API_HASH: ${{ secrets.API_HASH }}
+
+        run: |
+
+          cat > config.json <<EOF
+
+          {
+
+            "api_id": ${API_ID},
+
+            "api_hash": "${API_HASH}",
+
+            "channel": "TECH_MUKUL",
+
+            "search_limit": 30,
+
+            "output_dir": "output"
+
+          }
+
+          EOF
+
+
+
+      - name: Run tracker
+
+        run: |
+
+          python .github/workflows/telegram/hyperos.py
+
+
+
+      - name: Commit changes
+
+        run: |
+
+          if git diff --quiet; then
+
+            echo "No changes"
+
+            exit 0
+
+          fi
+
+
+
+          git config user.name "github-actions[bot]"
+
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+
+
+          git add .
+
+
+
+          git commit -m "Auto update HyperOS"
+
+
+
+          git push
+
+Nhìn vào file workflow .yaml của bạn, mình đã phát hiện ra nguyên nhân tại sao code vẫn bị lỗi EOFError. Lý do nằm ở sự lệch pha tên file và thiếu biến môi trường giữa file workflow và file Python.
+
+Cụ thể:
+
+Sai tên file session: Trong workflow, bạn giải mã ra file tên là telegram.session (> telegram.session). Nhưng trong code Python gốc của bạn, Telethon lại tìm file có tên là telegram_session.session. Do không thấy file, nó lại hỏi số điện thoại.
+
+Chưa truyền API_ID và API_HASH: Bước Run tracker của bạn đang chạy trống trơn, chưa truyền biến môi trường vào nên script Python không đọc được (nếu bạn định sửa code theo hướng đọc từ environment).
+
+Để fix triệt để, bạn chỉ cần điều chỉnh lại file Workflow .yaml của bạn ở 2 bước cuối như sau (giữ nguyên không cần đổi code Python):
+
+File .yaml sau khi sửa:
+YAML
+      - name: Restore Telegram Session
+        env:
+          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+        run: |
+          if [ -z "$TELEGRAM_SESSION" ]; then
+            echo "Missing TELEGRAM_SESSION secret"
+            exit 1
+          fi
+          # Sửa tên file ở đây thành telegram_session.session cho đúng với code Python
+          echo "$TELEGRAM_SESSION" | base64 -d > telegram_session.session
+
+      - name: Create config.json
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+        run: |
+          cat > config.json <<EOF
+          {
+            "api_id": ${API_ID},
+            "api_hash": "${API_HASH}",
+            "channel": "TECH_MUKUL",
+            "search_limit": 30,
+            "output_dir": "output"
+          }
+          EOF
+
+      - name: Run tracker
+        env:
+          # Truyền thêm các biến này vào phòng trường hợp file python cần dùng tới
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+        run: |
+          python .github/workflows/telegram/hyperos.py
+Một lưu ý nhỏ nữa:
+Trong bước Restore Telegram Session, lệnh echo "$TELEGRAM_SESSION" | base64 -d đôi khi sẽ hoạt động không chính xác trên môi trường Ubuntu của GitHub Actions nếu chuỗi Base64 quá dài hoặc chứa ký tự đặc biệt xuống dòng. Cách an toàn nhất là sử dụng printf:
+
+YAML
+        run: |
+          if [ -z "$TELEGRAM_SESSION" ]; then
+            echo "Missing TELEGRAM_SESSION secret"
+            exit 1
+          fi
+          # Dùng printf để tránh lỗi ký tự khoảng trắng/xuống dòng của lệnh echo
+          printf "%s" "$TELEGRAM_SESSION" | base64 -d > telegram_session.session
+Bạn hãy cập nhật lại file workflow của mình, commit lên và tận hưởng thành quả nhé!
+
+Run python .github/workflows/telegram/hyperos.py
+
+{
+
+"device": "REDMIK90ProMax",
+
+"codename": "myron",
+
+"version": "OS3.0.306.0.WPMCNXM",
+
+"android": "16",
+
+"status": "Full Release",
+
+"security_patch": "May 2026",
+
+"release": "9th Jun 2026",
+
+"size": "128MB",
+
+"telegram_post": "https://t.me/TECH_MUKUL/78659",
+
+"telegram_id": 78659,
+
+"date": "2026-06-09 14:40:26+00:00",
+
+"downloads": {
+
+"recovery": {
+
+"official": "https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.306.0.WPMCNXM/myron-ota_full-OS3.0.306.0.WPMCNXM-user-16.0-0b34ee6a73.zip",
+
+"mirror": "https://cdnor.d.miui.com/OS3.0.306.0.WPMCNXM/myron-ota_full-OS3.0.306.0.WPMCNXM-user-16.0-0b34ee6a73.zip"
+
+},
+
+"fastboot": {
+
+"official": "https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.306.0.WPMCNXM/myron_images_OS3.0.306.0.WPMCNXM_20260519.0000.00_16.0_cn_142ab138fb.tgz",
+
+"mirror": "https://cdnorg.d.miui.com/OS3.0.306.0.WPMCNXM/myron_images_OS3.0.306.0.WPMCNXM_20260519.0000.00_16.0_cn_142ab138fb.tgz"
+
+}
+
+}
+
+}
+
+Tuyệt vời! Script đã nhận diện được file session, đăng nhập thành công và cào được dữ liệu bản ROM HyperOS mới nhất của chiếc Redmi K90 Pro Max (codename: myron) chạy Android 16 một cách hoàn chỉnh.
+
+Tuy nhiên, nhìn vào log output hiện tại, có một vấn đề nhỏ có thể xảy ra ở bước tiếp theo trong workflow của bạn (Commit changes).
+
+Vấn đề hiện tại: Vị trí lưu file JSON bị lệch
+Trong code Python của bạn, lệnh ghi file đang là:
+
+Python
+with open("myron.json", "w", encoding="utf-8") as f:
+Lệnh này sẽ tạo ra file myron.json nằm ngay tại thư mục gốc (root) của repository.
+
+Nhưng trong file config.json mà workflow của bạn vừa tạo ra ở bước trước lại định nghĩa:
+
+JSON
+"output_dir": "output"
+Hiện tại script Python của bạn đang fix cứng việc ghi trực tiếp ra file myron.json ở thư mục gốc chứ chưa hề đọc cấu hình "output_dir": "output" từ file config.json.
+
+Bạn có cần sửa không?
+Nếu bạn muốn lưu ở thư mục gốc: Cứ giữ nguyên như hiện tại. Workflow vẫn sẽ tự động phát hiện file myron.json mới tạo ở thư mục gốc, chạy lệnh git add . rồi commit và push lên bình thường.
+
+Nếu bạn muốn gom file vào thư mục output cho gọn gàng: Bạn nên sửa lại đoạn ghi file ở cuối hyperos.py một chút để tạo thư mục và lưu đúng chỗ:
+
+Python
+    # Tạo thư mục output nếu chưa có
+    os.makedirs("output", exist_ok=True)
+
+    # Đổi đường dẫn lưu file vào trong thư mục output
+    with open("output/myron.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+    print()
+    print("Saved -> output/myron.json")
+Hiện tại script đã chạy "ngon lành cành đào" rồi, bạn có muốn tối ưu thêm phần tự động đọc file config.json để linh hoạt thay đổi codename (myron) thay vì fix cứng trong code không?
+
+Lấy 2 link của recovery rồi tải để xem tốc độ
+
+Để kiểm tra tốc độ tải (Download Speed) của 2 link Recovery (gồm link Official từ server Aliyun và link Mirror từ server Miui) ngay trên môi trường hạ tầng của GitHub Actions, bạn có thể dùng lệnh curl kết hợp ghi đè xuất dữ liệu ra thiết bị trống (/dev/null) để không làm tốn dung lượng ổ đĩa của Runner.
+
+Dưới đây là đoạn code cấu hình bổ sung vào file workflow .yaml của bạn để tự động lấy 2 link này và test tốc độ:
+
+Thêm bước này vào sau bước Run tracker trong file YAML:
+YAML
+      - name: Test Download Speed (Recovery Links)
+        run: |
+          # 1. Trích xuất link Official từ file myron.json vừa tạo
+          OFFICIAL_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
+          
+          # 2. Trích xuất link Mirror từ file myron.json
+          MIRROR_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['mirror'])")
+          
+          echo "=================================================="
+          echo "TESTING DOWNLOAD SPEED FROM GITHUB ACTIONS RUNNER"
+          echo "=================================================="
+          
+          # Test link Official (Giới hạn tải 50MB để test tốc độ nhanh, tránh nghẽn workflow)
+          if [ "$OFFICIAL_URL" != "None" ]; then
+            echo "👉 Testing Official Recovery Server..."
+            curl -L -G --max-filesize 52428800 -o /dev/null --speed-time 10 --speed-limit 1 "$OFFICIAL_URL" 2>&1 | tail -n 5
+          else
+            echo "❌ Official URL not found."
+          fi
+          
+          echo "--------------------------------------------------"
+          
+          # Test link Mirror
+          if [ "$MIRROR_URL" != "None" ]; then
+            echo "👉 Testing Mirror Recovery Server..."
+            curl -L -G --max-filesize 52428800 -o /dev/null --speed-time 10 --speed-limit 1 "$MIRROR_URL" 2>&1 | tail -n 5
+          else
+            echo "❌ Mirror URL not found."
+          fi
+          echo "=================================================="
+Cách đọc kết quả hiển thị trong Log:
+Khi bước này chạy, bạn sẽ nhìn thấy bảng thống kê băng thông thời gian thực của curl xuất ra như thế này:
+
+Plaintext
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+ 10 3935M   10  410M    0     0  75.2M      0  0:00:52  0:00:05  0:00:47 84.1M
+Average Speed (Dload): Tốc độ tải trung bình từ trước đến giờ.
+
+Current Speed: Tốc độ tải ngay tại giây hiện tại.
+
+Số hiển thị dạng M tương đương với MB/s (MegaBytes mỗi giây). Ví dụ 84.1M nghĩa là tốc độ đạt ~84 Megabytes/s (tương đương mạng ~700 Mbps).
+
+Không tét nữa tải 2 link recovery
+
+Nếu bạn muốn tải xuống toàn bộ file của cả 2 link Recovery (thay vì chỉ test tốc độ) để phục vụ cho các bước xử lý sau (ví dụ: giải nén, lấy file boot.img, payload, v.v.), bạn có thể dùng wget hoặc curl.
+
+Dưới đây là đoạn code để bạn đưa vào file workflow .yaml, thay thế cho bước test tốc độ trước đó:
+
+Thêm bước này vào file YAML:
+YAML
+      - name: Download Recovery ROMs
+        run: |
+          # 1. Trích xuất link từ file myron.json
+          OFFICIAL_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
+          MIRROR_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['mirror'])")
+          
+          # Tạo thư mục chứa file tải về
+          mkdir -p downloads
+          
+          echo "=================================================="
+          echo "STARTING DOWNLOAD"
+          echo "=================================================="
+          
+          # Tải link Official
+          if [ "$OFFICIAL_URL" != "None" ] && [ ! -z "$OFFICIAL_URL" ]; then
+            echo "📥 Downloading Official Recovery ROM..."
+            # Tải và lưu vào thư mục downloads/
+            wget -c -P downloads/ "$OFFICIAL_URL"
+          else
+            echo "❌ Official URL is empty."
+          fi
+          
+          echo "--------------------------------------------------"
+          
+          # Tải link Mirror
+          if [ "$MIRROR_URL" != "None" ] && [ ! -z "$MIRROR_URL" ]; then
+            echo "📥 Downloading Mirror Recovery ROM..."
+            wget -c -P downloads/ "$MIRROR_URL"
+          else
+            echo "❌ Mirror URL is empty."
+          fi
+          
+          echo "=================================================="
+          echo "Danh sách file đã tải thành công:"
+          ls -lh downloads/
+⚠️ Lưu ý quan trọng về dung lượng ổ đĩa: > Mỗi file Recovery ROM của Xiaomi thường nặng từ 4GB đến 7GB. Nếu bạn tải cả 2 file cùng lúc, tổng dung lượng sẽ lên tới gần 10GB - 14GB.
+
+Môi trường chạy GitHub Actions miễn phí (Ubuntu Runner) có sẵn khoảng 14GB - 17GB trống. Việc tải cả 2 file có thể làm phân vùng đĩa bị đầy và gây ra lỗi No space left on device ở các bước sau. Nếu bạn chỉ cần lấy file để xử lý, khuyến khích bạn chỉ nên chọn tải 1 trong 2 link (ưu tiên link Official hoặc Mirror tùy tốc độ).
+
+Wget tạo ra nhiều output tải làm không theo dõi step nổi luôn
+
+Để wget không làm tràn ngập màn hình log (khiến bạn không theo dõi được các bước chạy khác), bạn có thể chuyển sang dùng tham số -q --show-progress.
+
+Tham số này sẽ ẩn toàn bộ các dòng log rác (thông tin kết nối, header, v.v.) và chỉ giữ lại duy nhất một thanh tiến trình (progress bar) chạy gọn gàng trên một dòng.
+
+Bạn hãy thay đổi bước tải file trong file .yaml như sau:
+
+YAML
+      - name: Download Recovery ROMs
+        run: |
+          # 1. Trích xuất link từ file myron.json
+          OFFICIAL_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
+          MIRROR_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['mirror'])")
+          
+          mkdir -p downloads
+          
+          echo "=================================================="
+          
+          # Tải link Official (gọn gàng, chỉ hiện thanh tiến trình)
+          if [ "$OFFICIAL_URL" != "None" ] && [ ! -z "$OFFICIAL_URL" ]; then
+            echo "📥 Downloading Official Recovery ROM..."
+            wget -q --show-progress -c -P downloads/ "$OFFICIAL_URL"
+          else
+            echo "❌ Official URL is empty."
+          fi
+          
+          echo "--------------------------------------------------"
+          
+          # Tải link Mirror (gọn gàng, chỉ hiện thanh tiến trình)
+          if [ "$MIRROR_URL" != "None" ] && [ ! -z "$MIRROR_URL" ]; then
+            echo "📥 Downloading Mirror Recovery ROM..."
+            wget -q --show-progress -c -P downloads/ "$MIRROR_URL"
+          else
+            echo "❌ Mirror URL is empty."
+          fi
+          
+          echo "=================================================="
+          echo "Danh sách file đã tải thành công:"
+          ls -lh downloads/
+Giải thích tham số đã thêm:
+-q (quiet): Tắt hoàn toàn chế độ xuất log mặc định của wget.
+
+--show-progress: Ép wget chỉ hiển thị thanh phần trăm (%) và tốc độ tải, tự động cập nhật đè lên một dòng duy nhất trên console của GitHub Actions thay vì sinh ra hàng ngàn dòng mới.
+
+Dùng aria2 nhanh hơn không
+
+Có, aria2 (hay aria2c) nhanh hơn rất nhiều so với wget hay curl trong môi trường GitHub Actions.
+
+Lý do chính là wget chỉ tải bằng 1 kết nối duy nhất (single-connection). Trong khi đó, aria2 hỗ trợ tải đa luồng (multi-connection), cắt nhỏ file ra để tải đồng thời từ một hoặc nhiều server, giúp tận dụng tối đa băng thông cực khủng của server GitHub Actions (thường lên tới 1Gbps - 2Gbps).
+
+Hơn nữa, aria2 mặc định hiển thị log cực kỳ gọn, chỉ cập nhật trên một dòng duy nhất nên không làm rối màn hình step của bạn.
+
+Cách áp dụng aria2 vào GitHub Actions
+Bạn có thể thay thế bước tải bằng đoạn script sau. Script sẽ cài đặt aria2 và tiến hành tải đa luồng (16 luồng mỗi file):
+
+YAML
+      - name: Install aria2
+        run: sudo apt-get update && sudo apt-get install -y aria2
+
       - name: Download Recovery ROMs with aria2
         run: |
           # 1. Trích xuất link từ file myron.json
@@ -109,6 +1174,44 @@ jobs:
             aria2c -x 16 -s 16 -d downloads/ "$MIRROR_URL"
           else
             echo "❌ Mirror URL is empty."
+          fi
+          
+          echo "=================================================="
+          echo "Danh sách file đã tải thành công:"
+          ls -lh downloads/
+Giải thích các tham số tối ưu tốc độ của aria2c:
+-x 16: Cho phép thiết lập tối đa 16 kết nối (luồng) đến cùng một server.
+
+-s 16: Chia file làm 16 phần để tải đồng thời.
+
+-d downloads/: Chỉ định thư mục lưu file tải về là downloads/.
+
+Bỏ download mirror đi
+
+Dưới đây là file workflow .yaml sau khi đã loại bỏ hoàn toàn phần tải link Mirror, chỉ giữ lại duy nhất bước cài đặt aria2 và tải link Official với 16 luồng để đạt tốc độ tối đa:
+
+YAML
+      - name: Install aria2
+        run: sudo apt-get update && sudo apt-get install -y aria2
+
+      - name: Download Official Recovery ROM with aria2
+        run: |
+          # 1. Trích xuất duy nhất link Official từ file myron.json
+          OFFICIAL_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
+          
+          mkdir -p downloads
+          
+          echo "=================================================="
+          echo "STARTING DOWNLOAD OFFICIAL ROM WITH ARIA2"
+          echo "=================================================="
+          
+          # Tiến hành tải nếu link tồn tại
+          if [ "$OFFICIAL_URL" != "None" ] && [ ! -z "$OFFICIAL_URL" ]; then
+            echo "📥 Downloading Official Recovery ROM (16 Threads)..."
+            aria2c -x 16 -s 16 -d downloads/ "$OFFICIAL_URL"
+          else
+            echo "❌ Official URL is empty or not found."
+            exit 1
           fi
           
           echo "=================================================="
