@@ -72,7 +72,7 @@ jobs:
 
       - name: Run tracker
         run: |
-          python hyperos.py
+          python .github/workflows/telegram/hyperos.py
 
       - name: Commit changes
         run: |
