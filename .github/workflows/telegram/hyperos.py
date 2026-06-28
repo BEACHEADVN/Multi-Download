@@ -8,7 +8,7 @@ from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl
 # ==========================
 
 api_id = 33413032
-api_hash = "YOUR_API_HASH"
+api_hash = "88a4ee92ce485b73acd6c10db41be4d0"
 
 CHANNEL = "TECH_MUKUL"
 
