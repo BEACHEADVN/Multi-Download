@@ -52,8 +52,8 @@ jobs:
             echo "Missing TELEGRAM_SESSION secret"
             exit 1
           fi
-
-          echo "$TELEGRAM_SESSION" | base64 -d > telegram.session
+          # Sửa tên file ở đây thành telegram_session.session cho đúng với code Python
+          echo "$TELEGRAM_SESSION" | base64 -d > telegram_session.session
 
       - name: Create config.json
         env:
@@ -71,6 +71,10 @@ jobs:
           EOF
 
       - name: Run tracker
+        env:
+          # Truyền thêm các biến này vào phòng trường hợp file python cần dùng tới
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
         run: |
           python .github/workflows/telegram/hyperos.py
 
