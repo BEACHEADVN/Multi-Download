@@ -78,7 +78,7 @@ jobs:
         run: |
           python .github/workflows/telegram/hyperos.py
 
-       - name: Test Download Speed (Recovery Links)
+      - name: Test Download Speed (Recovery Links)
         run: |
           # 1. Trích xuất link Official từ file myron.json vừa tạo
           OFFICIAL_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
