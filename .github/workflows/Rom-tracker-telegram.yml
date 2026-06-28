@@ -78,24 +78,25 @@ jobs:
         run: |
           python .github/workflows/telegram/hyperos.py
 
-      - name: Download Recovery ROMs
+      - name: Install aria2
+        run: sudo apt-get update && sudo apt-get install -y aria2
+
+      - name: Download Recovery ROMs with aria2
         run: |
           # 1. Trích xuất link từ file myron.json
           OFFICIAL_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
           MIRROR_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['mirror'])")
           
-          # Tạo thư mục chứa file tải về
           mkdir -p downloads
           
           echo "=================================================="
-          echo "STARTING DOWNLOAD"
+          echo "STARTING DOWNLOAD WITH ARIA2 (16 THREADS)"
           echo "=================================================="
           
           # Tải link Official
           if [ "$OFFICIAL_URL" != "None" ] && [ ! -z "$OFFICIAL_URL" ]; then
             echo "📥 Downloading Official Recovery ROM..."
-            # Tải và lưu vào thư mục downloads/
-            wget -c -P downloads/ "$OFFICIAL_URL"
+            aria2c -x 16 -s 16 -d downloads/ "$OFFICIAL_URL"
           else
             echo "❌ Official URL is empty."
           fi
@@ -105,7 +106,7 @@ jobs:
           # Tải link Mirror
           if [ "$MIRROR_URL" != "None" ] && [ ! -z "$MIRROR_URL" ]; then
             echo "📥 Downloading Mirror Recovery ROM..."
-            wget -c -P downloads/ "$MIRROR_URL"
+            aria2c -x 16 -s 16 -d downloads/ "$MIRROR_URL"
           else
             echo "❌ Mirror URL is empty."
           fi
