@@ -37,7 +37,6 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           else
@@ -52,8 +51,7 @@ jobs:
             echo "Missing TELEGRAM_SESSION secret"
             exit 1
           fi
-          # Sửa tên file ở đây thành telegram_session.session cho đúng với code Python
-          echo "$TELEGRAM_SESSION" | base64 -d > telegram_session.session
+          printf "%s" "$TELEGRAM_SESSION" | base64 -d > telegram_session.session
 
       - name: Create config.json
         env:
@@ -72,38 +70,10 @@ jobs:
 
       - name: Run tracker
         env:
-          # Truyền thêm các biến này vào phòng trường hợp file python cần dùng tới
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
         run: |
           python .github/workflows/telegram/hyperos.py
-
-      - name: Install aria2
-        run: sudo apt-get update && sudo apt-get install -y aria2
-
-      - name: Download Official Recovery ROM with aria2
-        run: |
-          # 1. Trích xuất duy nhất link Official từ file myron.json
-          OFFICIAL_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
-          
-          mkdir -p downloads
-          
-          echo "=================================================="
-          echo "STARTING DOWNLOAD OFFICIAL ROM WITH ARIA2"
-          echo "=================================================="
-          
-          # Tiến hành tải nếu link tồn tại
-          if [ "$OFFICIAL_URL" != "None" ] && [ ! -z "$OFFICIAL_URL" ]; then
-            echo "📥 Downloading Official Recovery ROM (16 Threads)..."
-            aria2c -x 16 -s 16 -d downloads/ "$OFFICIAL_URL"
-          else
-            echo "❌ Official URL is empty or not found."
-            exit 1
-          fi
-          
-          echo "=================================================="
-          echo "Danh sách file đã tải thành công:"
-          ls -lh downloads/
 
       - name: Trigger Build in Xiaomi-Toolbuild Repo
         env:
@@ -112,7 +82,7 @@ jobs:
           # 1. Trích xuất link Official từ file json vừa tạo
           ROM_URL=$(python3 -c "import json; print(json.load(open('myron.json'))['downloads']['recovery']['official'])")
           
-          # Kiểm tra nếu có link hợp lệ thì mới gửi lệnh
+          # Kiểm tra nếu có link hợp lệ thì mới gửi lệnh kích hoạt repo kia
           if [ "$ROM_URL" != "None" ] && [ ! -z "$ROM_URL" ]; then
             echo "🚀 Đang gửi link sang repo toolbuild: $ROM_URL"
             
@@ -138,7 +108,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add .
-
           git commit -m "Auto update HyperOS"
-
           git push
