@@ -20,6 +20,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("--device", required=True)
 parser.add_argument("--codename", required=True)
+parser.add_argument("--region", required=True)
 parser.add_argument("--output", required=True)
 
 args = parser.parse_args()
@@ -57,13 +58,16 @@ async def main():
 
     async for msg in client.iter_messages(
         entity,
-        search=args.codename,
+        search=f"{args.device} {args.region}",
         limit=20
     ): # Sửa thụt lề từ đây cho đến hết vòng lặp
 
         text = msg.text or ""
 
         if f"#{args.device}".lower() not in text.lower():
+             continue
+
+        if f"#{args.region}".lower() not in text.lower():
             continue
 
         version = find(
