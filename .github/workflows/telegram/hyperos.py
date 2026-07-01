@@ -30,12 +30,13 @@ async def main():
     }
 
     print("🚀 Đang cào dữ liệu từ kênh Telegram...")
-    # Lấy thẳng 100 bài viết mới nhất không dùng tham số search của Telegram
-    async for msg in client.iter_messages(entity, limit=100):
+    
+    # Tăng hẳn lên limit=500 để đảm bảo chạm tới bài đăng cũ của dòng Myron
+    async for msg in client.iter_messages(entity, limit=500):
         text = msg.text or ""
         
-        # Tự lọc bằng Python: Nếu bài viết không chứa chữ 'myron' (bất kể hoa thường) thì bỏ qua
-        if "myron" != "myron" and "myron" not in text.lower():
+        # SỬA LỖI TẠI ĐÂY: Kiểm tra chính xác từ khóa myron trong bài viết
+        if "myron" not in text.lower():
             continue
 
         version = find(r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)", text)
