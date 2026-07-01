@@ -59,18 +59,18 @@ async def main():
         entity,
         search=args.codename,
         limit=20
-):
+    ): # Sửa thụt lề từ đây cho đến hết vòng lặp
 
         text = msg.text or ""
-    
+
         if f"#{args.device}".lower() not in text.lower():
             continue
-    
+
         version = find(
             r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)",
             text
         )
-    
+
         if version:
             posts.append({
                 "version": version,
@@ -155,7 +155,8 @@ async def main():
         ensure_ascii=False
     ))
 
-   with open(
+    # Sửa thụt lề khối ghi file JSON này về đúng cấp trong hàm main()
+    with open(
         args.output,
         "w",
         encoding="utf-8"
@@ -168,7 +169,7 @@ async def main():
         )
 
     print()
-   print(f"Saved -> {args.output}")
+    print(f"Saved -> {args.output}")
 
 
 with client:
