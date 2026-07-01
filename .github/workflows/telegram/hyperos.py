@@ -56,27 +56,27 @@ async def main():
     posts = []
 
     async for msg in client.iter_messages(
-    entity,
-    search=args.codename,
-    limit=20
+        entity,
+        search=args.codename,
+        limit=20
 ):
 
-    text = msg.text or ""
-
-    if f"#{args.device}".lower() not in text.lower():
-        continue
-
-    version = find(
-        r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)",
-        text
-    )
-
-    if version:
-        posts.append({
-            "version": version,
-            "msg": msg,
-            "key": version_key(version)
-        })
+        text = msg.text or ""
+    
+        if f"#{args.device}".lower() not in text.lower():
+            continue
+    
+        version = find(
+            r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)",
+            text
+        )
+    
+        if version:
+            posts.append({
+                "version": version,
+                "msg": msg,
+                "key": version_key(version)
+            })
 
     if not posts:
         print("Không tìm thấy ROM.")
