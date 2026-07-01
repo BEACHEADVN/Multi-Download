@@ -31,19 +31,20 @@ def version_key(version):
 async def main():
     entity = await client.get_entity(CHANNEL)
     
-    # Tạo danh sách riêng cho từng vùng miền
+    # Tạo 2 danh sách riêng biệt để chứa bài đăng của từng vùng
     cn_posts = []
     eu_posts = []
 
-    # Giữ nguyên cấu trúc tìm kiếm ngon lành của bạn
-    async for msg in client.iter_messages(entity, search="myron", limit=30):
+    print("🚀 Đang quét tin nhắn từ kênh Telegram...")
+    # Tăng limit lên 100 để không bị hụt bài trên GitHub Actions
+    async for msg in client.iter_messages(entity, search="myron", limit=100):
         text = msg.text or ""
         version = find(r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)", text)
 
         if version:
             suffix = version.split('.')[-1] if '.' in version else ""
             if len(suffix) >= 6:
-                region = suffix[4:6] # Lấy mã CN hoặc EU
+                region = suffix[4:6] # Cắt lấy chữ CN hoặc EU
                 post_data = {
                     "version": version,
                     "msg": msg,
@@ -54,24 +55,27 @@ async def main():
                 elif region == "EU":
                     eu_posts.append(post_data)
 
-    # Cấu hình phân tách xử lý cho từng vùng
+    # Đưa vào danh sách xử lý nếu vùng đó tìm thấy bài
     targets = []
     if cn_posts:
-        targets.append(("cn", max(cn_posts, key=lambda x: x["key"]), "redmik90promax"))
+        targets.append(("cn", max(cn_posts, key=lambda x: x["key"])))
     if eu_posts:
-        targets.append(("eu", max(eu_posts, key=lambda x: x["key"]), "pocof8ultra"))
+        targets.append(("eu", max(eu_posts, key=lambda x: x["key"])))
 
     if not targets:
         print("Không tìm thấy ROM.")
         return
 
-    # Duyệt và xuất file cho từng vùng được tìm thấy
-    for region_code, newest, default_device in targets:
+    # Duyệt qua từng vùng để tạo file JSON tương ứng
+    for region_code, newest in targets:
         msg = newest["msg"]
         text = msg.text or ""
 
+        # Thiết lập tên thiết bị dạng chữ thường (lowercase) theo đúng yêu cầu
+        device_name = "redmik90promax" if region_code == "cn" else "pocof8ultra"
+
         data = {
-            "device": default_device, # Tên mặc định chuẩn theo vùng miền bạn muốn
+            "device": device_name,
             "codename": "myron",
             "version": newest["version"],
             "android": find(r"Android:\s*(\d+)", text),
@@ -84,24 +88,10 @@ async def main():
             "date": str(msg.date)
         }
 
-        # Bỏ markdown & bóc hashtag giống hệt code gốc của bạn
+        # Xử lý làm sạch Markdown (Giữ nguyên logic gốc của bạn)
         clean = text.replace("**", "").replace("__", "").replace("`", "")
-        hashtags = re.findall(r"#([A-Za-z0-9]+)", clean)
-        ignore = {"HyperOS", "HyperOS2", "HyperOS3", "China", "India", "Europe", "EEA", "Global", "Update", "Released", "Release", "Full", "MiPilot", "Myron"}
 
-        for tag in hashtags:
-            if tag not in ignore:
-                # Nếu bóc được hashtag chuẩn thì ưu tiên dùng, không thì giữ nguyên mặc định ở trên
-                data["device"] = tag
-                break
-
-        # Ép chữ thường cho tên thiết bị đầu ra JSON theo đúng yêu cầu
-        if region_code == "cn":
-            data["device"] = "redmik90promax"
-        elif region_code == "eu":
-            data["device"] = "pocof8ultra"
-
-        # Bóc tách URLs URLs
+        # Trích xuất URLs
         urls = []
         if msg.entities:
             for entity in msg.entities:
@@ -126,12 +116,13 @@ async def main():
             }
         }
 
-        # Xuất riêng file: myron_cn.json và myron_eu.json
+        # Xuất ra file tương ứng: myron_cn.json hoặc myron_eu.json
         filename = f"myron_{region_code}.json"
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
 
-        print(f"Saved -> {filename}")
+        print(json.dumps(data, indent=4, ensure_ascii=False))
+        print(f"Saved -> {filename}\n")
 
 with client:
     client.loop.run_until_complete(main())
