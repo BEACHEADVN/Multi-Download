@@ -23,10 +23,12 @@ jobs:
         include:
           - device: POCOF8Ultra
             codename: myron
+            region: Europe
             output: pocof8ultra.json
-
+      
           - device: REDMIK90ProMax
             codename: myron
+            region: China
             output: redmik90promax.json
 
     steps:
