@@ -30,12 +30,11 @@ async def main():
     }
 
     print("🚀 Đang cào dữ liệu từ kênh Telegram...")
-    
-    # Tăng hẳn lên limit=500 để đảm bảo chạm tới bài đăng cũ của dòng Myron
+    # Tăng limit lên 500 để đảm bảo bao quát sâu được các bài đăng cũ của dòng Myron
     async for msg in client.iter_messages(entity, limit=500):
         text = msg.text or ""
         
-        # SỬA LỖI TẠI ĐÂY: Kiểm tra chính xác từ khóa myron trong bài viết
+        # ĐÃ SỬA: Bộ lọc chuẩn không phân biệt hoa thường
         if "myron" not in text.lower():
             continue
 
