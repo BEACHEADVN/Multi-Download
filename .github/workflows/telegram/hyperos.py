@@ -35,27 +35,38 @@ async def main():
     cn_posts = []
     eu_posts = []
 
-    print("🚀 Đang quét tin nhắn từ kênh Telegram...")
-    # Tăng limit lên 100 để không bị hụt bài trên GitHub Actions
-    async for msg in client.iter_messages(entity, search="myron", limit=100):
-        text = msg.text or ""
-        version = find(r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)", text)
+    # Danh sách từ khóa cần quét
+    search_keywords = ["myron", "REDMIK90ProMax", "POCOF8Ultra"]
+    
+    print("🚀 Đang quét dữ liệu từ kênh Telegram theo danh sách từ khóa...")
 
-        if version:
-            suffix = version.split('.')[-1] if '.' in version else ""
-            if len(suffix) >= 6:
-                region = suffix[4:6] # Cắt lấy chữ CN hoặc EU
-                post_data = {
-                    "version": version,
-                    "msg": msg,
-                    "key": version_key(version)
-                }
-                if region == "CN":
-                    cn_posts.append(post_data)
-                elif region == "EU":
-                    eu_posts.append(post_data)
+    for kw in search_keywords:
+        print(f"-> Quét từ khóa: {kw}")
+        # Quét limit=100 cho mỗi từ khóa để đảm bảo vét sạch bài đăng cũ mới
+        async for msg in client.iter_messages(entity, search=kw, limit=100):
+            text = msg.text or ""
+            version = find(r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)", text)
 
-    # Đưa vào danh sách xử lý nếu vùng đó tìm thấy bài
+            if version:
+                suffix = version.split('.')[-1] if '.' in version else ""
+                if len(suffix) >= 6:
+                    region = suffix[4:6] # Cắt lấy chữ CN hoặc EU
+                    
+                    # Tránh trùng lặp bài viết đã quét ở từ khóa trước
+                    post_id = msg.id
+                    post_data = {
+                        "id": post_id,
+                        "version": version,
+                        "msg": msg,
+                        "key": version_key(version)
+                    }
+                    
+                    if region == "CN" and post_id not in [p["id"] for p in cn_posts]:
+                        cn_posts.append(post_data)
+                    elif region == "EU" and post_id not in [p["id"] for p in eu_posts]:
+                        eu_posts.append(post_data)
+
+    # Lấy bài viết có build cao nhất cho từng vùng
     targets = []
     if cn_posts:
         targets.append(("cn", max(cn_posts, key=lambda x: x["key"])))
@@ -63,7 +74,7 @@ async def main():
         targets.append(("eu", max(eu_posts, key=lambda x: x["key"])))
 
     if not targets:
-        print("Không tìm thấy ROM.")
+        print("Không tìm thấy ROM với tất cả các từ khóa trên.")
         return
 
     # Duyệt qua từng vùng để tạo file JSON tương ứng
@@ -71,7 +82,7 @@ async def main():
         msg = newest["msg"]
         text = msg.text or ""
 
-        # Thiết lập tên thiết bị dạng chữ thường (lowercase) theo đúng yêu cầu
+        # Thiết lập tên thiết bị dạng chữ thường (lowercase) theo đúng yêu cầu của bạn
         device_name = "redmik90promax" if region_code == "cn" else "pocof8ultra"
 
         data = {
@@ -88,7 +99,7 @@ async def main():
             "date": str(msg.date)
         }
 
-        # Xử lý làm sạch Markdown (Giữ nguyên logic gốc của bạn)
+        # Xử lý làm sạch Markdown
         clean = text.replace("**", "").replace("__", "").replace("`", "")
 
         # Trích xuất URLs
