@@ -1,5 +1,6 @@
 import re
 import json
+import argparse
 from telethon import TelegramClient
 from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl
 
@@ -14,6 +15,13 @@ CHANNEL = "TECH_MUKUL"
 
 client = TelegramClient("telegram_session", api_id, api_hash)
 
+parser = argparse.ArgumentParser()
+
+parser.add_argument("--device", required=True)
+parser.add_argument("--codename", required=True)
+parser.add_argument("--output", required=True)
+
+args = parser.parse_args()
 
 # ==========================
 # FUNCTIONS
@@ -48,11 +56,13 @@ async def main():
 
     async for msg in client.iter_messages(
         entity,
-        search="myron",
+        search=args.codename,
         limit=20
     ):
 
         text = msg.text or ""
+        if f"#{args.device}".lower() not in text.lower():
+        continue
 
         version = find(
             r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)",
@@ -74,10 +84,12 @@ async def main():
 
     msg = newest["msg"]
     text = msg.text or ""
+    if f"#{args.device}".lower() not in text.lower():
+    continue
 
     data = {
-        "device": None,
-        "codename": "myron",
+        "device": args.device,
+        "codename": args.codename,
         "version": newest["version"],
         "android": find(r"Android:\s*(\d+)", text),
         "status": find(r"Status:\s*(.+)", text),
@@ -91,41 +103,6 @@ async def main():
         "telegram_id": msg.id,
         "date": str(msg.date)
     }
-
-    # ==========================
-    # DEVICE
-    # ==========================
-
-    clean = text
-
-    # bỏ markdown
-    clean = clean.replace("**", "")
-    clean = clean.replace("__", "")
-    clean = clean.replace("`", "")
-
-    hashtags = re.findall(r"#([A-Za-z0-9]+)", clean)
-
-    ignore = {
-        "HyperOS",
-        "HyperOS2",
-        "HyperOS3",
-        "China",
-        "India",
-        "Europe",
-        "EEA",
-        "Global",
-        "Update",
-        "Released",
-        "Release",
-        "Full",
-        "MiPilot",
-        "Myron"
-    }
-
-    for tag in hashtags:
-        if tag not in ignore:
-            data["device"] = tag
-            break
 
     # ==========================
     # URLS
@@ -178,8 +155,8 @@ async def main():
         ensure_ascii=False
     ))
 
-    with open(
-        "myron.json",
+   with open(
+    args.output,
         "w",
         encoding="utf-8"
     ) as f:
@@ -191,7 +168,7 @@ async def main():
         )
 
     print()
-    print("Saved -> myron.json")
+   print(f"Saved -> {args.output}")
 
 
 with client:
