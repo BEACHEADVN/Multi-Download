@@ -90,6 +90,7 @@ jobs:
           python .github/workflows/telegram/hyperos.py \
             --device "${{ matrix.device }}" \
             --codename "${{ matrix.codename }}" \
+            --region "${{ matrix.region }}" \
             --output "${{ matrix.output }}"
 
       - name: Trigger Build in Xiaomi-Toolbuild Repo
