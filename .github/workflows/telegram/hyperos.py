@@ -1,4 +1,5 @@
 import re
+import os
 import json
 import argparse
 from telethon import TelegramClient
@@ -8,8 +9,8 @@ from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl
 # CONFIG
 # ==========================
 
-api_id = 33413032
-api_hash = "88a4ee92ce485b73acd6c10db41be4d0"
+api_id = int(os.environ["API_ID"])
+api_hash = os.environ["API_HASH"]
 
 CHANNEL = "TECH_MUKUL"
 
@@ -55,26 +56,27 @@ async def main():
     posts = []
 
     async for msg in client.iter_messages(
-        entity,
-        search=args.codename,
-        limit=20
-    ):
+    entity,
+    search=args.codename,
+    limit=20
+):
 
-        text = msg.text or ""
-        if f"#{args.device}".lower() not in text.lower():
+    text = msg.text or ""
+
+    if f"#{args.device}".lower() not in text.lower():
         continue
 
-        version = find(
-            r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)",
-            text
-        )
+    version = find(
+        r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)",
+        text
+    )
 
-        if version:
-            posts.append({
-                "version": version,
-                "msg": msg,
-                "key": version_key(version)
-            })
+    if version:
+        posts.append({
+            "version": version,
+            "msg": msg,
+            "key": version_key(version)
+        })
 
     if not posts:
         print("Không tìm thấy ROM.")
@@ -84,8 +86,6 @@ async def main():
 
     msg = newest["msg"]
     text = msg.text or ""
-    if f"#{args.device}".lower() not in text.lower():
-    continue
 
     data = {
         "device": args.device,
@@ -120,7 +120,7 @@ async def main():
                 url = entity.url
 
             elif isinstance(entity, MessageEntityUrl):
-                url = clean[
+                url = text[
                     entity.offset:
                     entity.offset + entity.length
                 ]
@@ -156,7 +156,7 @@ async def main():
     ))
 
    with open(
-    args.output,
+        args.output,
         "w",
         encoding="utf-8"
     ) as f:
