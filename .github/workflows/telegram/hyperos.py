@@ -56,7 +56,9 @@ async def main():
     posts = []
 
     async for msg in client.iter_messages(
-        entity, search=f"{args.device} {args.region}", limit=20
+        entity,
+        search=args.codename,
+        limit=100
     ):
         text = msg.text or ""
 
