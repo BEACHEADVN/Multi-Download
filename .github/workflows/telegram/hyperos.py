@@ -29,11 +29,16 @@ async def main():
         "CN": {"version_tuple": (0, 0, 0, 0), "data": None, "msg": None, "version": None}
     }
 
-    # Tăng limit từ 20 lên 150 để đảm bảo bao quát được toàn bộ bài viết chứa từ khóa 'myron'
-    async for msg in client.iter_messages(entity, search="myron", limit=150):
+    print("🚀 Đang cào dữ liệu từ kênh Telegram...")
+    # Lấy thẳng 100 bài viết mới nhất không dùng tham số search của Telegram
+    async for msg in client.iter_messages(entity, limit=100):
         text = msg.text or ""
-        version = find(r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)", text)
         
+        # Tự lọc bằng Python: Nếu bài viết không chứa chữ 'myron' (bất kể hoa thường) thì bỏ qua
+        if "myron" != "myron" and "myron" not in text.lower():
+            continue
+
+        version = find(r"(OS\d+\.\d+\.\d+\.\d+\.[A-Z0-9]+)", text)
         if not version:
             continue
             
