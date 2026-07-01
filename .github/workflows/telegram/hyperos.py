@@ -59,14 +59,14 @@ async def main():
     async for msg in client.iter_messages(
         entity,
         search=f"{args.device} {args.region}",
-        limit=20
+        limit=
     ): # Sửa thụt lề từ đây cho đến hết vòng lặp
 
         text = msg.text or ""
 
         if f"#{args.device}".lower() not in text.lower():
-             continue
-
+            continue
+        
         if f"#{args.region}".lower() not in text.lower():
             continue
 
