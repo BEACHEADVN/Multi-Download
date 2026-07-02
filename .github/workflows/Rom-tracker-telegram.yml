@@ -163,7 +163,8 @@ jobs:
           # Đẩy thay đổi lên repo chính nếu phát hiện có sự thay đổi so với bản gốc tiencv2006 cập nhật
           if ! git diff --quiet; then
             git add uploadROM.sh
-            git commit -m "workflow: sync uploadROM.sh from tiencv2006 and patch modifications"
+            # ĐÃ CHÈN [skip ci] VÀO ĐÂY ĐỂ CHẶN KÍCH HOẠT WORKFLOW NGOÀI Ý MUỐN
+            git commit -m "workflow: sync uploadROM.sh from tiencv2006 and patch modifications [skip ci]"
             
             # Xử lý tranh chấp luồng song song: Thử push, nếu fail thì rebase, nếu vẫn fail thì bỏ qua êm đẹp
             git push origin main || {
