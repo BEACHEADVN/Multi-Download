@@ -114,34 +114,38 @@ jobs:
           fi
 
       # =======================================================================
-      # BƯỚC TÍCH HỢP THÊM: TỰ ĐỘNG SỬA FILE UPLOADROM.SH BÊN REPO XIAOMI-TOOLBUILD
+      # TẢI GHI ĐÈ TỪ TIENCV2006 VÀ PATCH UPLOADROM.SH SANG REPO XIAOMI-TOOLBUILD
       # =======================================================================
-      - name: Checkout and Patch Remote uploadROM.sh
+      - name: Overwrite and Patch Remote uploadROM.sh
         env:
           GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
         run: |
-          echo "Cloning nothingsvn_xiaomi-toolbuild to modify uploadROM.sh..."
+          echo "Cloning nothingsvn_xiaomi-toolbuild..."
           git clone https://x-access-token:${GH_TOKEN}@github.com/BEACHEADVN/nothingsvn_xiaomi-toolbuild.git target_repo
           
           cd target_repo
           
-          # 1. Loại bỏ 'exit 1' trong cụm rclone lỗi
+          echo "Downloading upstream uploadROM.sh from tiencv2006 to overwrite..."
+          curl -sL "https://raw.githubusercontent.com/tiencv2006/nothingsvn_xiaomi-toolbuild/main/uploadROM.sh" -o uploadROM.sh
+          
+          echo "Patching uploadROM.sh..."
+          # 1. Loại bỏ các dòng 'exit 1' nằm trong cụm lỗi rclone
           sed -i '/rclone -v --config/!b;n;n;s/exit 1//' uploadROM.sh
           
-          # 2. Thêm dấu # để comment 2 dòng xóa out và build
+          # 2. Vô hiệu hóa (comment out) hai dòng rm -rf out và build
           sed -i 's|rm -rf $work_dir/out|# rm -rf $work_dir/out|g' uploadROM.sh
           sed -i 's|rm -rf $work_dir/build|# rm -rf $work_dir/build|g' uploadROM.sh
           
-          # Nếu có thay đổi thì commit và push thẳng lên repo kia
+          # Đẩy thay đổi lên repo chính nếu có khác biệt
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add uploadROM.sh
-            git commit -m "workflow: auto remove exit 1 and disable cleanup in uploadROM.sh"
+            git commit -m "workflow: sync uploadROM.sh from tiencv2006 and patch modifications"
             git push origin main
-            echo "Successfully patched uploadROM.sh in remote repository!"
+            echo "Successfully overwrote and patched uploadROM.sh!"
           else
-            echo "No changes needed for uploadROM.sh."
+            echo "No changes detected."
           fi
           
           cd ..
