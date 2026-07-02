@@ -125,6 +125,9 @@ jobs:
           
           cd target_repo
           
+          # Đảm bảo file hiện tại ở trạng thái sạch trước khi đè
+          git checkout uploadROM.sh || true
+          
           echo "Downloading upstream uploadROM.sh from tiencv2006 to overwrite..."
           curl -sL "https://raw.githubusercontent.com/tiencv2006/nothingsvn_xiaomi-toolbuild/main/uploadROM.sh" -o uploadROM.sh
           
@@ -140,7 +143,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # Đẩy thay đổi lên repo chính nếu có khác biệt
+          # Đẩy thay đổi lên repo chính nếu phát hiện có sự thay đổi so với bản gốc tiencv2006 cập nhật
           if ! git diff --quiet; then
             git add uploadROM.sh
             git commit -m "workflow: sync uploadROM.sh from tiencv2006 and patch modifications"
@@ -156,7 +159,7 @@ jobs:
             }
             echo "Finished uploadROM.sh processing step."
           else
-            echo "No changes detected."
+            echo "No changes detected against upstream. Skip pushing to prevent commit spam."
           fi
           
           cd ..
