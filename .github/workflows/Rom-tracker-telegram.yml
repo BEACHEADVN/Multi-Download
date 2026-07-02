@@ -153,6 +153,10 @@ jobs:
           sed -i 's|rm -rf $work_dir/out|# rm -rf $work_dir/out|g' uploadROM.sh
           sed -i 's|rm -rf $work_dir/build|# rm -rf $work_dir/build|g' uploadROM.sh
           
+          # 3. CHỈ THÊM: Ép đổi tên section từ [nothings-toolbuild] sang [starxONEDRIVE] ngay trong rclone.conf trước khi upload
+          # Lệnh này sẽ chèn vào ngay sau khi setup file cấu hình xong
+          sed -i '/setup/a \  sed -i "s/\\[nothings-toolbuild\\]/\\[starxONEDRIVE\\]/g" rclone.conf || true' uploadROM.sh
+          
           # Cấu hình Git thông tin bot
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -178,7 +182,7 @@ jobs:
           
           cd ..
           rm -rf target_repo
-
+          
       - name: Commit changes (Multi-Download Repo)
         run: |
           if git diff --quiet; then
