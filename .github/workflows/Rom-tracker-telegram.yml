@@ -114,7 +114,7 @@ jobs:
           fi
 
       # =======================================================================
-      # TẢI GHI ĐÈ TỪ TIENCV2006 VÀ PATCH UPLOADROM.SH SANG REPO XIAOMI-TOOLBUILD
+      # BƯỚC TỰ ĐỘNG CLONE, ĐÈ FILE GỐC TIENCV2006 VÀ SỬA ĐỔI UPLOADROM.SH (ĐÃ FIX MATRIX)
       # =======================================================================
       - name: Overwrite and Patch Remote uploadROM.sh
         env:
@@ -136,14 +136,25 @@ jobs:
           sed -i 's|rm -rf $work_dir/out|# rm -rf $work_dir/out|g' uploadROM.sh
           sed -i 's|rm -rf $work_dir/build|# rm -rf $work_dir/build|g' uploadROM.sh
           
+          # Cấu hình Git thông tin bot
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
           # Đẩy thay đổi lên repo chính nếu có khác biệt
           if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add uploadROM.sh
             git commit -m "workflow: sync uploadROM.sh from tiencv2006 and patch modifications"
-            git push origin main
-            echo "Successfully overwrote and patched uploadROM.sh!"
+            
+            # Xử lý tranh chấp luồng song song: Thử push, nếu fail thì rebase, nếu vẫn fail thì bỏ qua êm đẹp
+            git push origin main || {
+                echo "⚠️ Push failed due to parallel matrix race. Retrying with rebase..."
+                git pull --rebase origin main
+                git push origin main
+            } || {
+                echo "❌ File already updated by the other matrix branch. Skipping safely."
+                git reset --hard origin/main
+            }
+            echo "Finished uploadROM.sh processing step."
           else
             echo "No changes detected."
           fi
