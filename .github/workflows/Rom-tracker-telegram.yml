@@ -1,5 +1,4 @@
 name: HyperOS ROM Tracker
-
 on:
   workflow_dispatch:
   schedule:
@@ -25,7 +24,6 @@ jobs:
             codename: myron
             region: Europe
             output: pocof8ultra.json
-      
           - device: REDMIK90ProMax
             codename: myron
             region: China
@@ -88,10 +86,10 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
         run: |
           python .github/workflows/telegram/hyperos.py \
-          --device "${{ matrix.device }}" \
-          --codename "${{ matrix.codename }}" \
-          --region "${{ matrix.region }}" \
-          --output "${{ matrix.output }}"
+            --device "${{ matrix.device }}" \
+            --codename "${{ matrix.codename }}" \
+            --region "${{ matrix.region }}" \
+            --output "${{ matrix.output }}"
 
       - name: Trigger Build in Xiaomi-Toolbuild Repo
         env:
@@ -99,11 +97,11 @@ jobs:
         run: |
           ROM_URL=$(python3 -c "import json; print(json.load(open('${{ matrix.output }}'))['downloads']['recovery']['official'])")
           DEVICE_NAME="${{ matrix.device }}"
-      
+          
           if [ "$ROM_URL" != "None" ] && [ ! -z "$ROM_URL" ]; then
             echo "🚀 Trigger $DEVICE_NAME"
             echo "$ROM_URL"
-      
+            
             curl -L \
               -X POST \
               -H "Accept: application/vnd.github+json" \
@@ -114,17 +112,49 @@ jobs:
           else
             echo "No ROM URL found."
           fi
+
+      # =======================================================================
+      # BƯỚC TÍCH HỢP THÊM: TỰ ĐỘNG SỬA FILE UPLOADROM.SH BÊN REPO XIAOMI-TOOLBUILD
+      # =======================================================================
+      - name: Checkout and Patch Remote uploadROM.sh
+        env:
+          GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
+        run: |
+          echo "Cloning nothingsvn_xiaomi-toolbuild to modify uploadROM.sh..."
+          git clone https://x-access-token:${GH_TOKEN}@github.com/BEACHEADVN/nothingsvn_xiaomi-toolbuild.git target_repo
           
-      - name: Commit changes
+          cd target_repo
+          
+          # 1. Loại bỏ 'exit 1' trong cụm rclone lỗi
+          sed -i '/rclone -v --config/!b;n;n;s/exit 1//' uploadROM.sh
+          
+          # 2. Thêm dấu # để comment 2 dòng xóa out và build
+          sed -i 's|rm -rf $work_dir/out|# rm -rf $work_dir/out|g' uploadROM.sh
+          sed -i 's|rm -rf $work_dir/build|# rm -rf $work_dir/build|g' uploadROM.sh
+          
+          # Nếu có thay đổi thì commit và push thẳng lên repo kia
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploadROM.sh
+            git commit -m "workflow: auto remove exit 1 and disable cleanup in uploadROM.sh"
+            git push origin main
+            echo "Successfully patched uploadROM.sh in remote repository!"
+          else
+            echo "No changes needed for uploadROM.sh."
+          fi
+          
+          cd ..
+          rm -rf target_repo
+
+      - name: Commit changes (Multi-Download Repo)
         run: |
           if git diff --quiet; then
-            echo "No changes"
+            echo "No changes in Multi-Download repo"
             exit 0
           fi
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add .
           git commit -m "Auto update HyperOS"
           git push
