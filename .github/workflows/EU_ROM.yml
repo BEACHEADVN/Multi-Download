@@ -18,8 +18,6 @@ jobs:
         include:
           - device: MYRON
             title: Myron
-          - device: SOCRATES
-            title: Socrates
 
     steps:
       - uses: actions/checkout@v4
