@@ -1,37 +1,98 @@
-name: Check for Myron in Devices JSON
+name: Check and Update Devices with Myron
 
 on:
-  # Chạy thủ công từ tab Actions
-  workflow_dispatch:
-  # Hoặc chạy định kỳ (ví dụ: mỗi ngày một lần, hủy comment 2 dòng dưới nếu cần)
-  # schedule:
-  #   - cron: '0 0 * * *'
+  workflow_dispatch: # Cho phép chạy thủ công từ giao diện Web
+  schedule:
+    - cron: '0 */6 * * *' # Tự động chạy mỗi 6 tiếng một lần
 
 jobs:
-  check-device:
+  update-devices:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Cấp quyền ghi để push dữ liệu lên repo của bạn
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Fetch devices.json and Check for Myron
+      - name: Fetch Target devices.json
         run: |
-          # URL raw của file devices.json cần kiểm tra
-          URL="https://raw.githubusercontent.com/BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild/ef5b78ee95e254bc83fae9bec0a250134f8d1530/bin/ddevice/data/devices.json"
+          URL="https://raw.githubusercontent.com/tiencv2006/nothingsvn_xiaomi-stocktoolbuild/main/bin/ddevice/data/devices.json"
+          echo "Downloading file từ $URL..."
+          curl -s "$URL" > target_devices.json
+
+      - name: Process and Insert Myron before Natrium
+        shell: python
+        run: |
+          import json
+          import os
+
+          target_file = 'target_devices.json'
+          local_file = 'devices.json'
           
-          echo "Giang tải file từ $URL..."
-          curl -s "$URL" > devices.json
+          # Đọc dữ liệu thô dạng text từ file tải về để xử lý dòng chuẩn xác nhất
+          with open(target_file, 'r', encoding='utf-8') as f:
+              lines = f.readlines()
+
+          # Kiểm tra xem file đã có "myron" chưa để tránh chèn trùng lặp
+          file_content_raw = "".join(lines)
+          if "myron" in file_content_raw:
+              print("Dữ liệu đã chứa từ khóa 'myron'. Chạy chế độ ghi đè mặc định.")
+              # Nếu đối phương đã tự thêm myron, ta giữ nguyên nội dung tải về
+              new_lines = lines
+          else:
+              print("Không tìm thấy 'myron'. Tiến hành tìm vị trí 'natrium' để chèn...")
+              new_lines = []
+              inserted = False
+              
+              for line in lines:
+                  # Nếu dòng hiện tại chứa "natrium" và chưa được chèn, chèn dòng myron vào TRƯỚC nó
+                  if "natrium" in line and not inserted:
+                      # Lấy khoảng trắng thụt đầu dòng (indent) của dòng natrium để định dạng dòng myron cho đẹp
+                      indent = len(line) - len(line.lstrip())
+                      myron_line = " " * indent + '"myron": "Redmi K90 Pro Max|POCO F8 Ultra",\n'
+                      new_lines.append(myron_line)
+                      inserted = True
+                      print("Đã chèn thành công dòng 'myron' vào trước dòng 'natrium'.")
+                  
+                  new_lines.append(line)
+              
+              if not inserted:
+                  print("Cảnh báo: Không tìm thấy chữ 'natrium' trong file. Tự động thêm 'myron' vào cuối cấu trúc.")
+                  # Dự phòng nếu không thấy chữ natrium, chèn vào trước dấu đóng ngoặc } hoặc ] cuối cùng
+                  for i in range(len(new_lines) - 1, -1, -1):
+                      if '}' in new_lines[i] or ']' in new_lines[i]:
+                          indent = len(new_lines[i]) - len(new_lines[i].lstrip()) + 2
+                          myron_line = " " * indent + '"myron": "Redmi K90 Pro Max|POCO F8 Ultra"\n'
+                          new_lines.insert(i, myron_line)
+                          break
+
+          # Ghi nội dung mới xử lý xong vào file cục bộ
+          output_content = "".join(new_lines)
           
-          # Kiểm tra xem từ khóa "myron" có tồn tại không (không phân biệt chữ hoa chữ thường với -i)
-          if grep -qi "myron" devices.json; then
-            echo "====================================="
-            echo "THÔNG BÁO: Tìm thấy dòng chứa 'myron'!"
-            echo "====================================="
-            # Hiển thị các dòng chứa từ khóa đó để bạn quan sát
-            grep -i "myron" devices.json
+          # Đọc nội dung hiện tại của repo bạn (nếu có) để so sánh xem có thực sự thay đổi không trước khi commit
+          current_local_content = ""
+          if os.path.exists(local_file):
+              with open(local_file, 'r', encoding='utf-8') as f:
+                  current_local_content = f.read()
+
+          if output_content != current_local_content:
+              with open(local_file, 'w', encoding='utf-8') as f:
+                  f.write(output_content)
+              with open('has_changes.txt', 'w') as f:
+                  f.write('true')
+              print("Đã tạo/cập nhật file devices.json thành công.")
+          else:
+              print("Dữ liệu trùng khớp hoàn toàn với bản hiện tại, không có gì thay đổi.")
+
+      - name: Commit and Push Changes
+        run: |
+          if [ -f has_changes.txt ]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add devices.json
+            git commit -m "Auto-insert myron before natrium in devices.json"
+            git push
           else
-            echo "====================================="
-            echo "Kết quả: Không tìm thấy dòng nào chứa 'myron'."
-            echo "====================================="
+            echo "Bỏ qua bước commit do không có thay đổi mới."
           fi
