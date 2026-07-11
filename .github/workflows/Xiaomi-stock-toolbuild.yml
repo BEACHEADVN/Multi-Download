@@ -1,98 +1,62 @@
-name: Check and Update Devices with Myron
+name: Fast Auto Update Devices JSON
 
 on:
-  workflow_dispatch: # Cho phép chạy thủ công từ giao diện Web
+  workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *' # Tự động chạy mỗi 6 tiếng một lần
+    - cron: '0 */6 * * *'
 
 jobs:
-  update-devices:
+  update-json:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Cấp quyền ghi để push dữ liệu lên repo của bạn
+      contents: write
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Fetch Target devices.json
+      - name: Fetch and Process JSON (Fastest Method)
         run: |
+          LOCAL_FILE="bin/ddevice/data/devices.json"
           URL="https://raw.githubusercontent.com/tiencv2006/nothingsvn_xiaomi-stocktoolbuild/main/bin/ddevice/data/devices.json"
-          echo "Downloading file từ $URL..."
+          
+          # 1. Tải file từ repo gốc về
           curl -s "$URL" > target_devices.json
-
-      - name: Process and Insert Myron before Natrium
-        shell: python
-        run: |
-          import json
-          import os
-
-          target_file = 'target_devices.json'
-          local_file = 'devices.json'
           
-          # Đọc dữ liệu thô dạng text từ file tải về để xử lý dòng chuẩn xác nhất
-          with open(target_file, 'r', encoding='utf-8') as f:
-              lines = f.readlines()
-
-          # Kiểm tra xem file đã có "myron" chưa để tránh chèn trùng lặp
-          file_content_raw = "".join(lines)
-          if "myron" in file_content_raw:
-              print("Dữ liệu đã chứa từ khóa 'myron'. Chạy chế độ ghi đè mặc định.")
-              # Nếu đối phương đã tự thêm myron, ta giữ nguyên nội dung tải về
-              new_lines = lines
-          else:
-              print("Không tìm thấy 'myron'. Tiến hành tìm vị trí 'natrium' để chèn...")
-              new_lines = []
-              inserted = False
-              
-              for line in lines:
-                  # Nếu dòng hiện tại chứa "natrium" và chưa được chèn, chèn dòng myron vào TRƯỚC nó
-                  if "natrium" in line and not inserted:
-                      # Lấy khoảng trắng thụt đầu dòng (indent) của dòng natrium để định dạng dòng myron cho đẹp
-                      indent = len(line) - len(line.lstrip())
-                      myron_line = " " * indent + '"myron": "Redmi K90 Pro Max|POCO F8 Ultra",\n'
-                      new_lines.append(myron_line)
-                      inserted = True
-                      print("Đã chèn thành công dòng 'myron' vào trước dòng 'natrium'.")
-                  
-                  new_lines.append(line)
-              
-              if not inserted:
-                  print("Cảnh báo: Không tìm thấy chữ 'natrium' trong file. Tự động thêm 'myron' vào cuối cấu trúc.")
-                  # Dự phòng nếu không thấy chữ natrium, chèn vào trước dấu đóng ngoặc } hoặc ] cuối cùng
-                  for i in range(len(new_lines) - 1, -1, -1):
-                      if '}' in new_lines[i] or ']' in new_lines[i]:
-                          indent = len(new_lines[i]) - len(new_lines[i].lstrip()) + 2
-                          myron_line = " " * indent + '"myron": "Redmi K90 Pro Max|POCO F8 Ultra"\n'
-                          new_lines.insert(i, myron_line)
-                          break
-
-          # Ghi nội dung mới xử lý xong vào file cục bộ
-          output_content = "".join(new_lines)
-          
-          # Đọc nội dung hiện tại của repo bạn (nếu có) để so sánh xem có thực sự thay đổi không trước khi commit
-          current_local_content = ""
-          if os.path.exists(local_file):
-              with open(local_file, 'r', encoding='utf-8') as f:
-                  current_local_content = f.read()
-
-          if output_content != current_local_content:
-              with open(local_file, 'w', encoding='utf-8') as f:
-                  f.write(output_content)
-              with open('has_changes.txt', 'w') as f:
-                  f.write('true')
-              print("Đã tạo/cập nhật file devices.json thành công.")
-          else:
-              print("Dữ liệu trùng khớp hoàn toàn với bản hiện tại, không có gì thay đổi.")
-
-      - name: Commit and Push Changes
-        run: |
-          if [ -f has_changes.txt ]; then
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add devices.json
-            git commit -m "Auto-insert myron before natrium in devices.json"
-            git push
-          else
-            echo "Bỏ qua bước commit do không có thay đổi mới."
+          # Kiểm tra xem file tải về có hợp lệ không
+          if [ ! -s target_devices.json ]; then
+            echo "Lỗi: Không tải được file hoặc file rỗng."
+            exit 1
           fi
+
+          # 2. Xử lý chèn dòng Myron trước dòng Natrium bằng AWK (Tốc độ ánh sáng)
+          # Tự động tính toán số khoảng trắng thụt lề (indent) của dòng natrium để áp dụng cho dòng myron
+          awk '
+            /natrium/ && !inserted {
+              match($0, /^[ \t]*/)
+              indent = substr($0, RSTART, RLENGTH)
+              print indent "\"myron\": \"Redmi K90 Pro Max|POCO F8 Ultra\","
+              inserted = 1
+            }
+            { print }
+          ' target_devices.json > processed_devices.json
+
+          # 3. So sánh trực tiếp file vừa xử lý với file hiện tại trong repo fork
+          if [ -f "$LOCAL_FILE" ] && cmp -s processed_devices.json "$LOCAL_FILE"; then
+            echo "MATCH=true" >> $GITHUB_ENV
+            echo "Không có thay đổi nào mới. Bỏ qua commit."
+          else
+            echo "MATCH=false" >> $GITHUB_ENV
+            mkdir -p "$(dirname "$LOCAL_FILE")"
+            mv processed_devices.json "$LOCAL_FILE"
+            echo "Đã ghi đè dữ liệu mới vào $LOCAL_FILE"
+          fi
+
+      - name: Commit and Push to this Repository
+        if: env.MATCH == 'false'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bin/ddevice/data/devices.json
+          git commit -m "Fast auto update devices.json with myron patch"
+          git push
