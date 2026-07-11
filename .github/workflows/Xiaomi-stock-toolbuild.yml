@@ -1,0 +1,37 @@
+name: Check for Myron in Devices JSON
+
+on:
+  # Chạy thủ công từ tab Actions
+  workflow_dispatch:
+  # Hoặc chạy định kỳ (ví dụ: mỗi ngày một lần, hủy comment 2 dòng dưới nếu cần)
+  # schedule:
+  #   - cron: '0 0 * * *'
+
+jobs:
+  check-device:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch devices.json and Check for Myron
+        run: |
+          # URL raw của file devices.json cần kiểm tra
+          URL="https://raw.githubusercontent.com/BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild/ef5b78ee95e254bc83fae9bec0a250134f8d1530/bin/ddevice/data/devices.json"
+          
+          echo "Giang tải file từ $URL..."
+          curl -s "$URL" > devices.json
+          
+          # Kiểm tra xem từ khóa "myron" có tồn tại không (không phân biệt chữ hoa chữ thường với -i)
+          if grep -qi "myron" devices.json; then
+            echo "====================================="
+            echo "THÔNG BÁO: Tìm thấy dòng chứa 'myron'!"
+            echo "====================================="
+            # Hiển thị các dòng chứa từ khóa đó để bạn quan sát
+            grep -i "myron" devices.json
+          else
+            echo "====================================="
+            echo "Kết quả: Không tìm thấy dòng nào chứa 'myron'."
+            echo "====================================="
+          fi
