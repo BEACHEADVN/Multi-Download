@@ -91,7 +91,8 @@ jobs:
 
       - name: Trigger Build in Xiaomi-Stocktoolbuild Repo
         env:
-          GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
+          # ĐỒNG BỘ THÀNH GH_TOKEN (Token Classic ghp_... có quyền repo)
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           ROM_URL=$(python3 -c "import json; print(json.load(open('${{ matrix.output }}'))['downloads']['recovery']['official'])")
           DEVICE_NAME="${{ matrix.device }}"
@@ -100,7 +101,7 @@ jobs:
             echo "🚀 Triggering target repository for $DEVICE_NAME"
             echo "ROM URL: $ROM_URL"
             
-            # Gửi dữ liệu gọn nhẹ sang kho stocktoolbuild thông qua repository_dispatch (Không mang theo rclone nữa)
+            # Bắn tín hiệu sang kho stocktoolbuild bằng GH_TOKEN chính chủ
             curl -L \
               -X POST \
               -H "Accept: application/vnd.github+json" \
