@@ -92,34 +92,22 @@ jobs:
       - name: Trigger Build in Xiaomi-Stocktoolbuild Repo
         env:
           GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
-          PRIVATE_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
           ROM_URL=$(python3 -c "import json; print(json.load(open('${{ matrix.output }}'))['downloads']['recovery']['official'])")
           DEVICE_NAME="${{ matrix.device }}"
           
           if [ "$ROM_URL" != "None" ] && [ ! -z "$ROM_URL" ]; then
-            echo "🚀 Fetching private rclone.conf..."
-            
-            RCLONE_DATA=$(curl -sL -H "Authorization: token $PRIVATE_TOKEN" \
-              -H "Accept: application/vnd.github.v3.raw" \
-              "https://api.github.com/repos/BEACHEADVN/PRIVATE_INFORMATION/contents/rclone.conf")
-            
-            RCLONE_BASE64=$(echo "$RCLONE_DATA" | base64 -w 0)
-            
             echo "🚀 Triggering target repository for $DEVICE_NAME"
             echo "ROM URL: $ROM_URL"
             
-            # Gửi dữ liệu chính xác sang kho stocktoolbuild thông qua repository_dispatch
+            # Gửi dữ liệu gọn nhẹ sang kho stocktoolbuild thông qua repository_dispatch (Không mang theo rclone nữa)
             curl -L \
               -X POST \
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               https://api.github.com/repos/BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild/dispatches \
-              -d "{\"event_type\":\"trigger_from_tracker\",\"client_payload\":{\"device\":\"$DEVICE_NAME\",\"rom_url\":\"$ROM_URL\",\"rclone_config\":\"$RCLONE_BASE64\"}}"
-              
-            unset RCLONE_DATA
-            unset RCLONE_BASE64
+              -d "{\"event_type\":\"trigger_from_tracker\",\"client_payload\":{\"device\":\"$DEVICE_NAME\",\"rom_url\":\"$ROM_URL\"}}"
           else
             echo "No ROM URL found. Skip trigger."
           fi
