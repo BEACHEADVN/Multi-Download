@@ -10,14 +10,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # JOB 1: Kiểm tra và cứu hộ các file workflow sang repo TARGET (xiaomi-stocktoolbuild)
+  # JOB 1: Chỉ thuần túy kiểm tra và cứu hộ file workflows sang repo TARGET nếu bị thiếu
   prepare-workflows:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Target Repository
         uses: actions/checkout@v4
         with:
-          # Định vị chính xác repo đích cần kiểm tra và thêm file
           repository: 'BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild'
           token: ${{ secrets.GH_TOKEN }}
           ref: 'main'
@@ -158,6 +157,7 @@ jobs:
             echo "🚀 Triggering target repository for $DEVICE_NAME"
             echo "ROM URL: $ROM_URL"
             
+            # Đoạn này bắn repository_dispatch -> bat-link-tu-tracker.yml tự bắt lấy và chạy tiếp
             curl -L \
               -X POST \
               -H "Accept: application/vnd.github+json" \
