@@ -1,0 +1,170 @@
+name: Inject Rclone and Pixeldrain Steps
+
+on:
+  workflow_dispatch: # Kích hoạt thủ công bằng nút bấm
+    inputs:
+      enable_rclone:
+        description: 'Bật chèn step Rclone (True/False)'
+        required: true
+        type: boolean
+        default: false
+      enable_pixeldrain:
+        description: 'Bật chèn step Pixeldrain (True/False)'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  inject-steps:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@main
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+
+      # Tự động Sync Fork từ repository gốc về trước khi làm các việc khác
+      - name: Sync Fork from Upstream
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "Đang thực hiện Sync Fork từ repository gốc..."
+          gh repo sync ${{ github.repository }} --branch main || echo "Sync fork có chút vấn đề hoặc đã trùng khớp, tiếp tục chạy..."
+          git pull origin main
+
+      - name: Inject Rclone Step
+        if: ${{ github.event.inputs.enable_rclone == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
+            -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/tai-rclone-tu-repo-private.txt?ref=main" \
+            -o rclone.txt
+
+          python3 - << 'EOF'
+          import os
+          build_path = ".github/workflows/build.yml"
+          if os.path.exists(build_path):
+              with open(build_path, "r", encoding="utf-8") as f:
+                  build_lines = f.readlines()
+              if any("Fetch Secret rclone.conf to Root Directory" in line for line in build_lines):
+                  print("Step Rclone đã tồn tại, bỏ qua.")
+                  exit(0)
+              target_idx = -1
+              for i, line in enumerate(build_lines):
+                  if "- name: Set up Rclone" in line:
+                      target_idx = i
+                      break
+              if target_idx != -1:
+                  line_target = build_lines[target_idx]
+                  indent_size = len(line_target) - len(line_target.lstrip())
+                  base_indent = " " * indent_size
+                  with open("rclone.txt", "r", encoding="utf-8") as f:
+                      rclone_content = f.read()
+                  formatted_lines = []
+                  for sub_line in rclone_content.splitlines():
+                      stripped = sub_line.strip()
+                      if not stripped:
+                          formatted_lines.append("")
+                          continue
+                      if stripped.startswith("- name:"):
+                          formatted_lines.append(f"{base_indent}{stripped}")
+                      elif stripped.startswith("env:") or stripped.startswith("run:") or stripped.startswith("id:") or stripped.startswith("shell:") or stripped.startswith("if:"):
+                          formatted_lines.append(f"{base_indent}  {stripped}")
+                      else:
+                          formatted_lines.append(f"{base_indent}    {stripped}")
+                  rclone_code = "\n".join(formatted_lines) + "\n\n"
+                  build_lines.insert(target_idx, rclone_code)
+                  with open(build_path, "w", encoding="utf-8") as f:
+                      f.writelines(build_lines)
+                  print("Đã chèn Rclone chuẩn cấu trúc thành công.")
+          EOF
+
+      - name: Inject Pixeldrain Step
+        if: ${{ github.event.inputs.enable_pixeldrain == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
+            -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/upload-pixeldrain.txt?ref=main" \
+            -o pixeldrain.txt
+
+          python3 - << 'EOF'
+          import os
+          build_path = ".github/workflows/build.yml"
+          if os.path.exists(build_path):
+              with open(build_path, "r", encoding="utf-8") as f:
+                  build_lines = f.readlines()
+              if any("Split Large File" in line for line in build_lines):
+                  print("Step Pixeldrain đã tồn tại, bỏ qua.")
+                  exit(0)
+              target_idx = -1
+              for i, line in enumerate(build_lines):
+                  if "- name: Send success notification" in line:
+                      target_idx = i
+                      break
+              if target_idx != -1:
+                  line_target = build_lines[target_idx]
+                  indent_size = len(line_target) - len(line_target.lstrip())
+                  base_indent = " " * indent_size
+                  with open("pixeldrain.txt", "r", encoding="utf-8") as f:
+                      pixeldrain_content = f.read()
+                  formatted_lines = []
+                  for sub_line in pixeldrain_content.splitlines():
+                      stripped = sub_line.strip()
+                      if not stripped:
+                          formatted_lines.append("")
+                          continue
+                      if stripped.startswith("- name:"):
+                          formatted_lines.append(f"{base_indent}{stripped}")
+                      elif stripped.startswith("env:") or stripped.startswith("run:") or stripped.startswith("id:") or stripped.startswith("shell:") or stripped.startswith("if:"):
+                          formatted_lines.append(f"{base_indent}  {stripped}")
+                      else:
+                          formatted_lines.append(f"{base_indent}    {stripped}")
+                  pixeldrain_code = "\n".join(formatted_lines) + "\n\n"
+                  build_lines.insert(target_idx, pixeldrain_code)
+                  with open(build_path, "w", encoding="utf-8") as f:
+                      f.writelines(build_lines)
+                  print("Đã chèn Pixeldrain chuẩn cấu trúc thành công.")
+          EOF
+
+      - name: Modify uploadROM.sh Script
+        shell: bash
+        run: |
+          if [ -f ./uploadROM.sh ]; then
+            echo "Đang xử lý chỉnh sửa file uploadROM.sh..."
+            
+            # 1. Tìm và thay thế giá trị ONEDRIVE_REMOTE
+            sed -i 's/ONEDRIVE_REMOTE=.*/ONEDRIVE_REMOTE="nothings-toolbuild"/g' ./uploadROM.sh
+            
+            # 2. Xóa bỏ hoàn toàn 2 dòng dọn dẹp out và build
+            sed -i '/rm -rf \$work_dir\/out/d' ./uploadROM.sh
+            sed -i '/rm -rf \$work_dir\/build/d' ./uploadROM.sh
+            
+            # 3. Sử dụng Perl một dòng để xóa đúng 2 dòng 'exit 1' trong khối MIUI
+            perl -0777 -pi -e 's/(if\s+\[\[\s+\$rom_os\s+==\s+"MIUI"\s+\]\];\s+then.*?upload\s+"Error uploading file to OneDrive: \$FILENAME"\s*\n\s*)exit 1(\s*\n\s*}\s*\n\s*else.*?upload\s+"Error uploading file to OneDrive: \$FILENAME"\s*\n\s*)exit 1/\1\2/sg' ./uploadROM.sh
+            
+            echo "Sửa script hoàn tất!"
+          else
+            echo "Không tìm thấy file uploadROM.sh để sửa!"
+            exit 1
+          fi
+
+      - name: Push changes to Repository
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Chỉ theo dõi và commit đúng 2 file mục tiêu
+          git add .github/workflows/build.yml uploadROM.sh
+          
+          git commit -m "Automated: Sync steps, update uploadROM.sh and remove custom block exit 1" || echo "Không có thay đổi để commit"
+          
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git push origin main
