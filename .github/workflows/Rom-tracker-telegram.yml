@@ -10,7 +10,63 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # JOB 1: Chỉ chạy đúng 1 lần duy nhất để kiểm tra và tải các file workflows cần thiết
+  prepare-workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+
+      # Step tải file dọn dẹp riêng không chung đụng với matrix
+      - name: Verify and Download Workflow Files
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          echo "=== KIỂM TRA VÀ TỰ ĐỘNG TẢI CÁC FILE WORKFLOWS ==="
+          mkdir -p .github/workflows
+          
+          UPDATED=0
+
+          # Kiểm tra file bat-link-tu-tracker.yml
+          if [ -f .github/workflows/bat-link-tu-tracker.yml ]; then
+            echo "✅ Đã có sẵn: bat-link-tu-tracker.yml"
+          else
+            echo "❌ Không tìm thấy bat-link-tu-tracker.yml. Tiến hành tải..."
+            curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
+              -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/workflow-bat-link-tu-tracker.txt?ref=main" \
+              -o .github/workflows/bat-link-tu-tracker.yml
+            UPDATED=1
+          fi
+
+          # Kiểm tra file mod-repo.yml
+          if [ -f .github/workflows/mod-repo.yml ]; then
+            echo "✅ Đã có sẵn: mod-repo.yml"
+          else
+            echo "❌ Không tìm thấy mod-repo.yml. Tiến hành tải..."
+            curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
+              -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/workflow-mod-repo.txt?ref=main" \
+              -o .github/workflows/mod-repo.yml
+            UPDATED=1
+          fi
+          
+          echo "UPDATED=$UPDATED" >> $GITHUB_ENV
+          echo "=========================================="
+
+      - name: Push Workflows if Missing
+        if: env.UPDATED == '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/bat-link-tu-tracker.yml .github/workflows/mod-repo.yml
+          git commit -m "Auto recovery missing tracker and mod-repo workflows"
+          git push
+
+  # JOB 2: Chạy quét Matrix thiết bị (Chỉ kích hoạt sau khi JOB 1 hoàn tất)
   update:
+    needs: prepare-workflows
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -36,6 +92,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Thực hiện git pull trước khi chạy tracking để tránh xung đột lịch sử do JOB 1 tạo ra
+      - name: Pull latest changes
+        run: git pull origin main
+
+      # ... (Các step Setup, Cache pip, Run tracker, Trigger Build giữ nguyên như cũ của bạn) ...
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -91,7 +152,6 @@ jobs:
 
       - name: Trigger Build in Xiaomi-Stocktoolbuild Repo
         env:
-          # ĐỒNG BỘ THÀNH GH_TOKEN (Token Classic ghp_... có quyền repo)
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           ROM_URL=$(python3 -c "import json; print(json.load(open('${{ matrix.output }}'))['downloads']['recovery']['official'])")
@@ -101,7 +161,6 @@ jobs:
             echo "🚀 Triggering target repository for $DEVICE_NAME"
             echo "ROM URL: $ROM_URL"
             
-            # Bắn tín hiệu sang kho stocktoolbuild bằng GH_TOKEN chính chủ
             curl -L \
               -X POST \
               -H "Accept: application/vnd.github+json" \
@@ -122,5 +181,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Auto update HyperOS JSON logs"
+          git commit -m "Auto update HyperOS JSON logs [${{ matrix.device }}]"
+          # Dùng thêm lệnh pull trước khi push trong matrix để giảm tỷ lệ lỗi push trùng lặp dữ liệu JSON
+          git pull --rebase origin main
           git push
