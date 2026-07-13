@@ -1,15 +1,14 @@
-name: Inject Rclone and Pixeldrain Steps
-
+name: Mod repo
 on:
   workflow_dispatch: # Kích hoạt thủ công bằng nút bấm hoặc API dispatch
     inputs:
       enable_rclone:
-        description: 'Bật chèn step Rclone (True/False)'
+        description: 'Bật chèn step Rclone'
         required: true
         type: boolean
         default: false
       enable_pixeldrain:
-        description: 'Bật chèn step Pixeldrain (True/False)'
+        description: 'Bật chèn step Pixeldrain'
         required: true
         type: boolean
         default: true
