@@ -1,187 +1,222 @@
-name: Mod repo
+name: HyperOS ROM Tracker
 on:
-  workflow_dispatch: # Kích hoạt thủ công bằng nút bấm hoặc API dispatch
-    inputs:
-      enable_rclone:
-        description: 'Bật chèn step Rclone'
-        required: true
-        type: boolean
-        default: false
-      enable_pixeldrain:
-        description: 'Bật chèn step Pixeldrain'
-        required: true
-        type: boolean
-        default: true
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: hyperos-tracker
+  cancel-in-progress: false
+
 jobs:
-  inject-steps:
+# JOB 1: Đồng bộ, cứu hộ và ĐỢI mod-repo.yml chạy xong
+  sync-and-prepare:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Target Repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild'
+          token: ${{ secrets.GH_TOKEN }}
+          ref: 'main'
+
+      - name: Sync Fork from Upstream
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "🔄 Đang tiến hành Sync Fork cho repo xiaomi-stocktoolbuild..."
+          gh repo sync BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild --branch main || echo "⚠️ Tiếp tục chạy..."
+          git pull origin main
+
+      - name: Verify and Download Workflow Files
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          echo "=== KIỂM TRA CÁC WORKFLOWS SAU KHI SYNC ==="
+          mkdir -p .github/workflows
+          UPDATED=0
+          if [ ! -f .github/workflows/bat-link-tu-tracker.yml ]; then
+            curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
+              -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/workflow-bat-link-tu-tracker.txt?ref=main" \
+              -o .github/workflows/bat-link-tu-tracker.yml
+            UPDATED=1
+          fi
+          if [ ! -f .github/workflows/mod-repo.yml ]; then
+            curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
+              -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/workflow-mod-repo.txt?ref=main" \
+              -o .github/workflows/mod-repo.yml
+            UPDATED=1
+          fi
+          echo "UPDATED=$UPDATED" >> $GITHUB_ENV
+
+      - name: Push Workflows if Missing
+        if: env.UPDATED == '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/bat-link-tu-tracker.yml .github/workflows/mod-repo.yml
+          git commit -m "Auto recovery missing workflows after sync fork"
+          git push origin main
+
+      - name: Trigger and Wait for mod-repo Workflow
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "🚀 Kích hoạt mod-repo.yml..."
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild/actions/workflows/mod-repo.yml/dispatches \
+            -d '{"ref":"main"}'
+          
+          echo "⏳ Đợi 10 giây để GitHub khởi tạo run ID..."
+          sleep 10
+          
+          # Vòng lặp kiểm tra trạng thái (Polling)
+          REPO="BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild"
+          echo "🔍 Đang theo dõi tiến độ chạy của mod-repo.yml..."
+          
+          while true; do
+            # Lấy trạng thái của lượt chạy (run) mới nhất của mod-repo.yml
+            RUN_INFO=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/$REPO/actions/workflows/mod-repo.yml/runs?per_page=1)
+            
+            STATUS=$(echo "$RUN_INFO" | python3 -c "import sys, json; print(json.load(sys.stdin)['workflow_runs'][0]['status'])")
+            CONCLUSION=$(echo "$RUN_INFO" | python3 -c "import sys, json; res = json.load(sys.stdin)['workflow_runs'][0]['conclusion']; print(res if res else 'None')")
+            
+            echo "📊 Trạng thái hiện tại: $STATUS | Kết quả: $CONCLUSION"
+            
+            if [ "$STATUS" = "completed" ]; then
+              if [ "$CONCLUSION" = "success" ]; then
+                echo "✅ mod-repo.yml đã hoàn thành THÀNH CÔNG! Cho phép chạy Tracker."
+                break
+              else
+                echo "❌ mod-repo.yml chạy THẤT BẠI. Dừng workflow tracker để tránh lỗi."
+                exit 1
+              fi
+            fi
+            
+            echo "💤 Vẫn đang chạy, đợi thêm 15 giây..."
+            sleep 15
+          done
+
+  # JOB 2: Quét matrix Tracker trên repository Multi-Download hiện tại
+  update:
+    needs: sync-and-prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: POCOF8Ultra
+            codename: myron
+            region: Europe
+            output: pocof8ultra.json
+          - device: REDMIK90ProMax
+            codename: myron
+            region: China
+            output: redmik90promax.json
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@main
+      - name: Checkout Current Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          token: ${{ secrets.GH_TOKEN }}
+          python-version: "3.12"
 
-      # Step khởi tạo thư mục Boot và tải toàn bộ dữ liệu từ My-Assets sang
-      - name: Create Boot Folder and Copy Files
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        shell: bash
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install dependencies
         run: |
-          TARGET_DIR="./bin/modfile/UpdateFile/Boot"
-          echo "📁 Đang khởi tạo thư mục đích: $TARGET_DIR"
-          mkdir -p "$TARGET_DIR"
-          
-          echo "📥 Đang tải tạm thời repository My-Assets..."
-          # Clone nhanh nhánh main của My-Assets vào thư mục tạm 'assets_temp'
-          git clone --depth 1 https://x-access-token:${GH_TOKEN}@github.com/BEACHEADVN/My-Assets.git assets_temp
-          
-          echo "🚚 Đang sao chép toàn bộ file từ ROM/boot sang..."
-          if [ -d "assets_temp/ROM/boot" ]; then
-            # Sao chép mọi thứ nằm trong thư mục ROM/boot sang thư mục đích
-            cp -r assets_temp/ROM/boot/* "$TARGET_DIR/" 2>/dev/null || echo "Thư mục ROM/boot rỗng hoặc có lỗi sao chép nhỏ."
-            echo "✅ Sao chép thành công!"
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
           else
-            echo "❌ Không tìm thấy thư mục ROM/boot trong My-Assets!"
-            exit 1
-          fi
-          
-          # Dọn dẹp thư mục tạm sau khi xử lý xong
-          rm -rf assets_temp
-
-       Tar - name: Inject Rclone Step
-        if: ${{ github.event.inputs.enable_rclone == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
-            -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/tai-rclone-tu-repo-private.txt?ref=main" \
-            -o rclone.txt
-
-          python3 - << 'EOF'
-          import os
-          build_path = ".github/workflows/build.yml"
-          if os.path.exists(build_path):
-              with open(build_path, "r", encoding="utf-8") as f:
-                  build_lines = f.readlines()
-              if any("Fetch Secret rclone.conf to Root Directory" in line for line in build_lines):
-                  print("Step Rclone đã tồn tại, bỏ qua.")
-                  exit(0)
-              target_idx = -1
-              for i, line in enumerate(build_lines):
-                  if "- name: Set up Rclone" in line:
-                      target_idx = i
-                      break
-              if target_idx != -1:
-                  line_target = build_lines[target_idx]
-                  indent_size = len(line_target) - len(line_target.lstrip())
-                  base_indent = " " * indent_size
-                  with open("rclone.txt", "r", encoding="utf-8") as f:
-                      rclone_content = f.read()
-                  formatted_lines = []
-                  for sub_line in rclone_content.splitlines():
-                      stripped = sub_line.strip()
-                      if not stripped:
-                          formatted_lines.append("")
-                          continue
-                      if stripped.startswith("- name:"):
-                          formatted_lines.append(f"{base_indent}{stripped}")
-                      elif stripped.startswith("env:") or stripped.startswith("run:") or stripped.startswith("id:") or stripped.startswith("shell:") or stripped.startswith("if:"):
-                          formatted_lines.append(f"{base_indent}  {stripped}")
-                      else:
-                          formatted_lines.append(f"{base_indent}    {stripped}")
-                  rclone_code = "\n".join(formatted_lines) + "\n\n"
-                  build_lines.insert(target_idx, rclone_code)
-                  with open(build_path, "w", encoding="utf-8") as f:
-                      f.writelines(build_lines)
-                  print("Đã chèn Rclone chuẩn cấu trúc thành công.")
-          EOF
-
-      - name: Inject Pixeldrain Step
-        if: ${{ github.event.inputs.enable_pixeldrain == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
-            -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/upload-pixeldrain.txt?ref=main" \
-            -o pixeldrain.txt
-
-          python3 - << 'EOF'
-          import os
-          build_path = ".github/workflows/build.yml"
-          if os.path.exists(build_path):
-              with open(build_path, "r", encoding="utf-8") as f:
-                  build_lines = f.readlines()
-              if any("Split Large File" in line for line in build_lines):
-                  print("Step Pixeldrain đã tồn tại, bỏ qua.")
-                  exit(0)
-              target_idx = -1
-              for i, line in enumerate(build_lines):
-                  if "- name: Send success notification" in line:
-                      target_idx = i
-                      break
-              if target_idx != -1:
-                  line_target = build_lines[target_idx]
-                  indent_size = len(line_target) - len(line_target.lstrip())
-                  base_indent = " " * indent_size
-                  with open("pixeldrain.txt", "r", encoding="utf-8") as f:
-                      pixeldrain_content = f.read()
-                  formatted_lines = []
-                  for sub_line in pixeldrain_content.splitlines():
-                      stripped = sub_line.strip()
-                      if not stripped:
-                          formatted_lines.append("")
-                          continue
-                      if stripped.startswith("- name:"):
-                          formatted_lines.append(f"{base_indent}{stripped}")
-                      elif stripped.startswith("env:") or stripped.startswith("run:") or stripped.startswith("id:") or stripped.startswith("shell:") or stripped.startswith("if:"):
-                          formatted_lines.append(f"{base_indent}  {stripped}")
-                      else:
-                          formatted_lines.append(f"{base_indent}    {stripped}")
-                  pixeldrain_code = "\n".join(formatted_lines) + "\n\n"
-                  build_lines.insert(target_idx, pixeldrain_code)
-                  with open(build_path, "w", encoding="utf-8") as f:
-                      f.writelines(build_lines)
-                  print("Đã chèn Pixeldrain chuẩn cấu trúc thành công.")
-          EOF
-
-      - name: Modify uploadROM.sh Script
-        shell: bash
-        run: |
-          if [ -f ./uploadROM.sh ]; then
-            echo "Đang xử lý chỉnh sửa file uploadROM.sh..."
-            
-            # 1. Tìm và thay thế giá trị ONEDRIVE_REMOTE
-            sed -i 's/ONEDRIVE_REMOTE=.*/ONEDRIVE_REMOTE="nothings-toolbuild"/g' ./uploadROM.sh
-            
-            # 2. Xóa bỏ hoàn toàn 2 dòng dọn dẹp out và build
-            sed -i '/rm -rf \$work_dir\/out/d' ./uploadROM.sh
-            sed -i '/rm -rf \$work_dir\/build/d' ./uploadROM.sh
-            
-            # 3. Sử dụng Perl một dòng để xóa đúng 2 dòng 'exit 1' trong khối MIUI
-            perl -0777 -pi -e 's/(if\s+\[\[\s+\$rom_os\s+==\s+"MIUI"\s+\]\];\s+then.*?upload\s+"Error uploading file to OneDrive: \$FILENAME"\s*\n\s*)exit 1(\s*\n\s*}\s*\n\s*else.*?upload\s+"Error uploading file to OneDrive: \$FILENAME"\s*\n\s*)exit 1/\1\2/sg' ./uploadROM.sh
-            
-            echo "Sửa script hoàn tất!"
-          else
-            echo "Không tìm thấy file uploadROM.sh để sửa!"
-            exit 1
+            pip install telethon
           fi
 
-      - name: Push changes to Repository
+      - name: Restore Telegram Session
+        env:
+          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+        run: |
+          if [ -z "$TELEGRAM_SESSION" ]; then
+            echo "Missing TELEGRAM_SESSION secret"
+            exit 1
+          fi
+          printf "%s" "$TELEGRAM_SESSION" | base64 -d > telegram_session.session
+
+      - name: Create config.json
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+        run: |
+          cat > config.json <<EOF
+          {
+            "api_id": ${API_ID},
+            "api_hash": "${API_HASH}",
+            "channel": "TECH_MUKUL",
+            "search_limit": 30,
+            "output_dir": "output"
+          }
+          EOF
+
+      - name: Run tracker
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+        run: |
+          python .github/workflows/telegram/hyperos.py \
+            --device "${{ matrix.device }}" \
+            --codename "${{ matrix.codename }}" \
+            --region "${{ matrix.region }}" \
+            --output "${{ matrix.output }}"
+
+      - name: Trigger Build in Xiaomi-Stocktoolbuild Repo
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          ROM_URL=$(python3 -c "import json; print(json.load(open('${{ matrix.output }}'))['downloads']['recovery']['official'])")
+          DEVICE_NAME="${{ matrix.device }}"
           
-          # Git tự động add toàn bộ nội dung file mới được copy vào thư mục Boot
-          git add .github/workflows/build.yml uploadROM.sh ./bin/modfile/UpdateFile/Boot/
-          
-          git commit -m "Automated: Sync steps, create Boot folder and populate files from My-Assets" || echo "Không có thay đổi để commit"
-          
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git push origin main
+          if [ "$ROM_URL" != "None" ] && [ ! -z "$ROM_URL" ]; then
+            echo "🚀 Triggering target repository for $DEVICE_NAME"
+            echo "ROM URL: $ROM_URL"
+            
+            curl -L \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              https://api.github.com/repos/BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild/dispatches \
+              -d "{\"event_type\":\"trigger_from_tracker\",\"client_payload\":{\"device\":\"$DEVICE_NAME\",\"rom_url\":\"$ROM_URL\"}}"
+          else
+            echo "No ROM URL found. Skip trigger."
+          fi
+
+      - name: Commit changes (Multi-Download Repo)
+        run: |
+          if git diff --quiet; then
+            echo "No changes in Multi-Download repo"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Auto update HyperOS JSON logs [${{ matrix.device }}]"
+          git pull --rebase origin main
+          git push
