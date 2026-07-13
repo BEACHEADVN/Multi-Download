@@ -1,16 +1,4 @@
-name: HyperOS ROM Tracker
-on:
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-concurrency:
-  group: hyperos-tracker
-  cancel-in-progress: false
-
-jobs:
-  # JOB 1: Đồng bộ, kiểm tra/khôi phục workflow và kích hoạt mod-repo.yml tại repo target
+# JOB 1: Đồng bộ, cứu hộ và ĐỢI mod-repo.yml chạy xong
   sync-and-prepare:
     runs-on: ubuntu-latest
     steps:
@@ -21,16 +9,14 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           ref: 'main'
 
-      # 1. Sync Fork cho repo target trước khi làm việc khác
       - name: Sync Fork from Upstream
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           echo "🔄 Đang tiến hành Sync Fork cho repo xiaomi-stocktoolbuild..."
-          gh repo sync BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild --branch main || echo "⚠️ Khúc này sync fork có thể đã trùng khớp hoặc có xung đột nhẹ, tiếp tục chạy..."
+          gh repo sync BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild --branch main || echo "⚠️ Tiếp tục chạy..."
           git pull origin main
 
-      # 2. Kiểm tra xem 2 file yml mục tiêu có tồn tại không, nếu thiếu thì tự tải về cứu hộ
       - name: Verify and Download Workflow Files
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -38,33 +24,20 @@ jobs:
         run: |
           echo "=== KIỂM TRA CÁC WORKFLOWS SAU KHI SYNC ==="
           mkdir -p .github/workflows
-          
           UPDATED=0
-
-          # Kiểm tra file bat-link-tu-tracker.yml
-          if [ -f .github/workflows/bat-link-tu-tracker.yml ]; then
-            echo "✅ Đã tìm thấy: bat-link-tu-tracker.yml"
-          else
-            echo "❌ Thiếu bat-link-tu-tracker.yml! Đang tải khôi phục..."
+          if [ ! -f .github/workflows/bat-link-tu-tracker.yml ]; then
             curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
               -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/workflow-bat-link-tu-tracker.txt?ref=main" \
               -o .github/workflows/bat-link-tu-tracker.yml
             UPDATED=1
           fi
-
-          # Kiểm tra file mod-repo.yml
-          if [ -f .github/workflows/mod-repo.yml ]; then
-            echo "✅ Đã tìm thấy: mod-repo.yml"
-          else
-            echo "❌ Thiếu mod-repo.yml! Đang tải khôi phục..."
+          if [ ! -f .github/workflows/mod-repo.yml ]; then
             curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
               -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/workflow-mod-repo.txt?ref=main" \
               -o .github/workflows/mod-repo.yml
             UPDATED=1
           fi
-          
           echo "UPDATED=$UPDATED" >> $GITHUB_ENV
-          echo "=========================================="
 
       - name: Push Workflows if Missing
         if: env.UPDATED == '1'
@@ -75,13 +48,11 @@ jobs:
           git commit -m "Auto recovery missing workflows after sync fork"
           git push origin main
 
-      # 3. Sau khi mọi thứ đã sẵn sàng và đầy đủ, tiến hành gọi chạy mod-repo.yml
-      - name: Trigger mod-repo Workflow
+      - name: Trigger and Wait for mod-repo Workflow
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          echo "🚀 Đang kích hoạt mod-repo.yml hoạt động..."
-          
+          echo "🚀 Kích hoạt mod-repo.yml..."
           curl -L \
             -X POST \
             -H "Accept: application/vnd.github+json" \
@@ -90,121 +61,34 @@ jobs:
             https://api.github.com/repos/BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild/actions/workflows/mod-repo.yml/dispatches \
             -d '{"ref":"main"}'
           
-          echo "⏳ Đợi 10 giây để hệ thống ghi nhận lệnh..."
+          echo "⏳ Đợi 10 giây để GitHub khởi tạo run ID..."
           sleep 10
-
-  # JOB 2: Quét matrix Tracker trên repository Multi-Download hiện tại
-  update:
-    needs: sync-and-prepare
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - device: POCOF8Ultra
-            codename: myron
-            region: Europe
-            output: pocof8ultra.json
-          - device: REDMIK90ProMax
-            codename: myron
-            region: China
-            output: redmik90promax.json
-
-    steps:
-      - name: Checkout Current Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            pip-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            pip install telethon
-          fi
-
-      - name: Restore Telegram Session
-        env:
-          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
-        run: |
-          if [ -z "$TELEGRAM_SESSION" ]; then
-            echo "Missing TELEGRAM_SESSION secret"
-            exit 1
-          fi
-          printf "%s" "$TELEGRAM_SESSION" | base64 -d > telegram_session.session
-
-      - name: Create config.json
-        env:
-          API_ID: ${{ secrets.API_ID }}
-          API_HASH: ${{ secrets.API_HASH }}
-        run: |
-          cat > config.json <<EOF
-          {
-            "api_id": ${API_ID},
-            "api_hash": "${API_HASH}",
-            "channel": "TECH_MUKUL",
-            "search_limit": 30,
-            "output_dir": "output"
-          }
-          EOF
-
-      - name: Run tracker
-        env:
-          API_ID: ${{ secrets.API_ID }}
-          API_HASH: ${{ secrets.API_HASH }}
-        run: |
-          python .github/workflows/telegram/hyperos.py \
-            --device "${{ matrix.device }}" \
-            --codename "${{ matrix.codename }}" \
-            --region "${{ matrix.region }}" \
-            --output "${{ matrix.output }}"
-
-      - name: Trigger Build in Xiaomi-Stocktoolbuild Repo
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          ROM_URL=$(python3 -c "import json; print(json.load(open('${{ matrix.output }}'))['downloads']['recovery']['official'])")
-          DEVICE_NAME="${{ matrix.device }}"
           
-          if [ "$ROM_URL" != "None" ] && [ ! -z "$ROM_URL" ]; then
-            echo "🚀 Triggering target repository for $DEVICE_NAME"
-            echo "ROM URL: $ROM_URL"
-            
-            curl -L \
-              -X POST \
+          # Vòng lặp kiểm tra trạng thái (Polling)
+          REPO="BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild"
+          echo "🔍 Đang theo dõi tiến độ chạy của mod-repo.yml..."
+          
+          while true; do
+            # Lấy trạng thái của lượt chạy (run) mới nhất của mod-repo.yml
+            RUN_INFO=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              https://api.github.com/repos/BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild/dispatches \
-              -d "{\"event_type\":\"trigger_from_tracker\",\"client_payload\":{\"device\":\"$DEVICE_NAME\",\"rom_url\":\"$ROM_URL\"}}"
-          else
-            echo "No ROM URL found. Skip trigger."
-          fi
-
-      - name: Commit changes (Multi-Download Repo)
-        run: |
-          if git diff --quiet; then
-            echo "No changes in Multi-Download repo"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Auto update HyperOS JSON logs [${{ matrix.device }}]"
-          git pull --rebase origin main
-          git push
+              https://api.github.com/repos/$REPO/actions/workflows/mod-repo.yml/runs?per_page=1)
+            
+            STATUS=$(echo "$RUN_INFO" | python3 -c "import sys, json; print(json.load(sys.stdin)['workflow_runs'][0]['status'])")
+            CONCLUSION=$(echo "$RUN_INFO" | python3 -c "import sys, json; res = json.load(sys.stdin)['workflow_runs'][0]['conclusion']; print(res if res else 'None')")
+            
+            echo "📊 Trạng thái hiện tại: $STATUS | Kết quả: $CONCLUSION"
+            
+            if [ "$STATUS" = "completed" ]; then
+              if [ "$CONCLUSION" = "success" ]; then
+                echo "✅ mod-repo.yml đã hoàn thành THÀNH CÔNG! Cho phép chạy Tracker."
+                break
+              else
+                echo "❌ mod-repo.yml chạy THẤT BẠI. Dừng workflow tracker để tránh lỗi."
+                exit 1
+              fi
+            fi
+            
+            echo "💤 Vẫn đang chạy, đợi thêm 15 giây..."
+            sleep 15
+          done
