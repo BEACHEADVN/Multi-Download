@@ -10,8 +10,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # JOB 1: Chỉ thuần túy kiểm tra và cứu hộ file workflows sang repo TARGET nếu bị thiếu
-  prepare-workflows:
+  # JOB 1: Đồng bộ, kiểm tra/khôi phục workflow và kích hoạt mod-repo.yml tại repo target
+  sync-and-prepare:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Target Repository
@@ -21,32 +21,42 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           ref: 'main'
 
-      - name: Verify and Download Workflow Files to Target Repo
+      # 1. Sync Fork cho repo target trước khi làm việc khác
+      - name: Sync Fork from Upstream
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "🔄 Đang tiến hành Sync Fork cho repo xiaomi-stocktoolbuild..."
+          gh repo sync BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild --branch main || echo "⚠️ Khúc này sync fork có thể đã trùng khớp hoặc có xung đột nhẹ, tiếp tục chạy..."
+          git pull origin main
+
+      # 2. Kiểm tra xem 2 file yml mục tiêu có tồn tại không, nếu thiếu thì tự tải về cứu hộ
+      - name: Verify and Download Workflow Files
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         shell: bash
         run: |
-          echo "=== KIỂM TRA CÁC WORKFLOWS TRÊN REPO TARGET ==="
+          echo "=== KIỂM TRA CÁC WORKFLOWS SAU KHI SYNC ==="
           mkdir -p .github/workflows
           
           UPDATED=0
 
-          # Kiểm tra file bat-link-tu-tracker.yml trên repo target
+          # Kiểm tra file bat-link-tu-tracker.yml
           if [ -f .github/workflows/bat-link-tu-tracker.yml ]; then
-            echo "✅ Đã có sẵn trên target: bat-link-tu-tracker.yml"
+            echo "✅ Đã tìm thấy: bat-link-tu-tracker.yml"
           else
-            echo "❌ Không tìm thấy bat-link-tu-tracker.yml trên target. Tiến hành tải..."
+            echo "❌ Thiếu bat-link-tu-tracker.yml! Đang tải khôi phục..."
             curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
               -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/workflow-bat-link-tu-tracker.txt?ref=main" \
               -o .github/workflows/bat-link-tu-tracker.yml
             UPDATED=1
           fi
 
-          # Kiểm tra file mod-repo.yml trên repo target
+          # Kiểm tra file mod-repo.yml
           if [ -f .github/workflows/mod-repo.yml ]; then
-            echo "✅ Đã có sẵn trên target: mod-repo.yml"
+            echo "✅ Đã tìm thấy: mod-repo.yml"
           else
-            echo "❌ Không tìm thấy mod-repo.yml trên target. Tiến hành tải..."
+            echo "❌ Thiếu mod-repo.yml! Đang tải khôi phục..."
             curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3.raw" \
               -L "https://api.github.com/repos/BEACHEADVN/My-Assets/contents/ROM/repo/workflow-mod-repo.txt?ref=main" \
               -o .github/workflows/mod-repo.yml
@@ -56,18 +66,36 @@ jobs:
           echo "UPDATED=$UPDATED" >> $GITHUB_ENV
           echo "=========================================="
 
-      - name: Push Workflows to Target Repository
+      - name: Push Workflows if Missing
         if: env.UPDATED == '1'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/workflows/bat-link-tu-tracker.yml .github/workflows/mod-repo.yml
-          git commit -m "Auto recovery missing tracker and mod-repo workflows from My-Assets"
+          git commit -m "Auto recovery missing workflows after sync fork"
           git push origin main
 
-  # JOB 2: Chạy quét Tracker trên máy ảo của repo Multi-Download hiện tại
+      # 3. Sau khi mọi thứ đã sẵn sàng và đầy đủ, tiến hành gọi chạy mod-repo.yml
+      - name: Trigger mod-repo Workflow
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "🚀 Đang kích hoạt mod-repo.yml hoạt động..."
+          
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild/actions/workflows/mod-repo.yml/dispatches \
+            -d '{"ref":"main"}'
+          
+          echo "⏳ Đợi 10 giây để hệ thống ghi nhận lệnh..."
+          sleep 10
+
+  # JOB 2: Quét matrix Tracker trên repository Multi-Download hiện tại
   update:
-    needs: prepare-workflows
+    needs: sync-and-prepare
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -157,7 +185,6 @@ jobs:
             echo "🚀 Triggering target repository for $DEVICE_NAME"
             echo "ROM URL: $ROM_URL"
             
-            # Đoạn này bắn repository_dispatch -> bat-link-tu-tracker.yml tự bắt lấy và chạy tiếp
             curl -L \
               -X POST \
               -H "Accept: application/vnd.github+json" \
