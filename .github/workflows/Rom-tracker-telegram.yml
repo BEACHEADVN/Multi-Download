@@ -1,10 +1,14 @@
 name: HyperOS ROM Tracker
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Vẫn giữ nút bấm thủ công
+  schedule:
+    # Chạy vào phút thứ 0 của mỗi giờ (Ví dụ: 1:00, 2:00, 3:00...)
+    - cron: '0 * * * *'
 
 permissions:
   contents: write
 
+# Giới hạn concurrency để tránh các giờ chạy đè lên nhau nếu hàng đợi bị nghẽn
 concurrency:
   group: hyperos-tracker
   cancel-in-progress: false
@@ -208,15 +212,28 @@ jobs:
             echo "No ROM URL found. Skip trigger."
           fi
 
-      - name: Commit changes (Multi-Download Repo)
+      - name: Commit and Push changes (Multi-Download Repo)
         run: |
           if git diff --quiet; then
             echo "No changes in Multi-Download repo"
             exit 0
           fi
+          
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .
+          git add "${{ matrix.output }}"
           git commit -m "Auto update HyperOS JSON logs [${{ matrix.device }}]"
-          git pull --rebase origin main
-          git push
+          
+          # Vòng lặp tối đa 5 lần cố gắng kéo và đẩy nếu có tranh chấp giữa các thiết bị trong matrix
+          for i in {1..5}; do
+            echo "Attempt $i: Pulling latest changes and pushing..."
+            git pull --rebase origin main
+            if git push; then
+              echo "✅ Đẩy log thành công!"
+              exit 0
+            fi
+            echo "⚠️ Tranh chấp Git xảy ra, thử lại sau 5 giây..."
+            sleep 5
+          done
+          echo "❌ Không thể push log sau nhiều lần thử."
+          exit 1
