@@ -188,10 +188,10 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
         run: |
           python .github/workflows/telegram/hyperos.py \
-            -d "${{ matrix.device }}" \
-            -c "${{ matrix.codename }}" \
-            -r "${{ matrix.region }}" \
-            -o "${{ matrix.output }}"
+            --device "${{ matrix.device }}" \
+            --codename "${{ matrix.codename }}" \
+            --region "${{ matrix.region }}" \
+            --output "${{ matrix.output }}"
 
       - name: Trigger Build in Xiaomi-Stocktoolbuild Repo
         env:
