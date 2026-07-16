@@ -102,8 +102,8 @@ jobs:
               fi
             fi
             
-            echo "💤 Vẫn đang chạy, đợi thêm 15 giây..."
-            sleep 15
+            echo "💤 Vẫn đang chạy, đợi thêm 5 giây..."
+            sleep 5
           done
 
 # JOB 2: Quét matrix Tracker trên repository Multi-Download hiện tại
