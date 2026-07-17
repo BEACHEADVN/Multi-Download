@@ -29,40 +29,33 @@ jobs:
           repository: 'BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild'
           token: ${{ secrets.GH_TOKEN }}
           ref: 'main'
-          fetch-depth: 0 # Lấy toàn bộ lịch sử commit để thuật toán so sánh chính xác
+          fetch-depth: 0 # Lấy đủ lịch sử commit để kiểm tra chính xác
 
       - name: Check Upstream Commits Before Sync
         id: check_upstream
         run: |
-          echo "🔄 Đang kiểm tra lịch sử commit giữa repo gốc và repo fork của bạn..."
+          echo "🔄 Đang kiểm tra lịch sử commit giữa repo gốc và repo fork..."
           
           # 1. Thêm remote upstream nếu chưa tồn tại
           git remote add upstream https://github.com/tiencv2006/nothingsvn_xiaomi-stocktoolbuild.git || true
           git fetch upstream main
           
-          # 2. Lấy mã băm commit mới nhất từ hai phía
           UPSTREAM_SHA=$(git rev-parse upstream/main)
-          LOCAL_SHA=$(git rev-parse HEAD)
           echo "📍 Commit mới nhất của repo gốc (upstream): $UPSTREAM_SHA"
-          echo "📍 Commit hiện tại trên repo fork của bạn: $LOCAL_SHA"
+          echo "📍 Commit hiện tại trên repo fork của bạn: $(git rev-parse HEAD)"
           
-          # 3. Kiểm tra tính hợp lệ
+          # 2. Đánh giá xem có cần ép buộc đè code hay không
           if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
-            echo "⚠️ Chế độ Force Build được bật! Bỏ qua kiểm tra, tiến hành chạy tiếp..."
+            echo "⚠️ Chế độ Force Build được bật! Buộc phải Sync Fork."
             echo "SHOULD_SYNC=true" >> $GITHUB_ENV
           elif git merge-base --is-ancestor "$UPSTREAM_SHA" HEAD; then
             echo "=========================================================================="
-            echo "⛔ Repo gốc KHÔNG có commit nào mới mà bạn chưa đồng bộ."
-            echo " Các thay đổi độc lập của bạn trên repo fork vẫn đang an toàn."
-            echo "🛑 Hủy bỏ chuỗi Sync và Build để tránh ghi đè bậy!"
+            echo "⛔ Repo gốc không có commit mới. Các thay đổi của bạn đang an toàn."
+            echo "⏭️ BỎ QUA bước Sync Fork đè code để bảo vệ commit của bạn. Vẫn chạy các bước tiếp theo!"
             echo "=========================================================================="
             echo "SHOULD_SYNC=false" >> $GITHUB_ENV
-            
-            # Cố tình cho step dừng chạy nhẹ nhàng mà không làm đỏ toàn bộ log tổng của job
-            # (Hoặc dùng exit 1 nếu bạn thích nó hiện màu đỏ để dễ theo dõi)
-            exit 1
           else
-            echo "🚀 Phát hiện repo gốc có thay đổi mới hoàn toàn!"
+            echo "🚀 Phát hiện repo gốc có thay đổi mới! Sẽ tiến hành Sync Fork."
             echo "SHOULD_SYNC=true" >> $GITHUB_ENV
           fi
 
@@ -76,19 +69,18 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Ghi đè cứng về trạng thái code gốc sạch sẽ nhất
+          # Chỉ chạy khi thực sự có code mới: Đè cứng về trạng thái code gốc sạch sẽ nhất
           git reset --hard upstream/main
           git push origin main --force
           
           echo "✅ Đã Sync Fork và cập nhật đè code mới thành công!"
 
       - name: Verify and Download Workflow Files
-        if: env.SHOULD_SYNC == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         shell: bash
         run: |
-          echo "=== KIỂM TRA CÁC WORKFLOWS SAU KHI SYNC ==="
+          echo "=== KIỂM TRA CÁC WORKFLOWS ==="
           mkdir -p .github/workflows
           UPDATED=0
           if [ ! -f .github/workflows/bat-link-tu-tracker.yml ]; then
@@ -106,16 +98,15 @@ jobs:
           echo "UPDATED=$UPDATED" >> $GITHUB_ENV
 
       - name: Push Workflows if Missing
-        if: env.SHOULD_SYNC == 'true' && env.UPDATED == '1'
+        if: env.UPDATED == '1'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/workflows/bat-link-tu-tracker.yml .github/workflows/mod-repo.yml
-          git commit -m "Auto recovery missing workflows after sync fork"
+          git commit -m "Auto recovery missing workflows"
           git push origin main
 
       - name: Trigger and Wait for mod-repo Workflow
-        if: env.SHOULD_SYNC == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
@@ -146,7 +137,7 @@ jobs:
             
             if [ "$STATUS" = "completed" ]; then
               if [ "$CONCLUSION" = "success" ]; then
-                echo "✅ mod-repo.yml đã hoàn thành THÀNH CÔNG! Cho phép chạy Tracker."
+                echo "✅ mod-repo.yml đã hoàn thành THÀNH CÔNG!"
                 break
               else
                 echo "❌ mod-repo.yml chạy THẤT BẠI. Dừng workflow tracker để tránh lỗi."
@@ -246,7 +237,6 @@ jobs:
           ROM_URL=$(python3 -c "import json; print(json.load(open('${{ matrix.output }}'))['downloads']['recovery']['official'])")
           DEVICE_NAME="${{ matrix.device }}"
           
-          # Đọc giá trị từ input thủ công, mặc định là false nếu chạy tự động (schedule)
           IS_FORCE_BUILD="${{ github.event.inputs.force_build }}"
           if [ -z "$IS_FORCE_BUILD" ]; then
             IS_FORCE_BUILD="false"
