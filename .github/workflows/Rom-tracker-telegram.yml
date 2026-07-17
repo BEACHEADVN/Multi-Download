@@ -30,13 +30,30 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           ref: 'main'
 
-      - name: Sync Fork from Upstream
+      - name: Sync Fork Layout
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          echo "🔄 Đang tiến hành Sync Fork cho repo xiaomi-stocktoolbuild..."
-          gh repo sync BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild --branch main || echo "⚠️ Tiếp tục chạy..."
-          git pull origin main
+          echo "🔄 Đang tiến hành Sync Fork cưỡng bách cho repo..."
+          
+          # Cấu hình Git thông tin bot
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 1. Thêm repo gốc (upstream) nếu chưa có
+          # Thay 'TÊN_TÀI_KHOẢN_GỐC' bằng user/organization sở hữu bản gốc của stocktoolbuild
+          git remote add upstream https://github.com/tiencv2006/nothingsvn_xiaomi-stocktoolbuild.git || true
+          
+          # 2. Tải code mới nhất từ bản gốc về
+          git fetch upstream
+          
+          # 3. Ép buộc nhánh main hiện tại chuyển sang giống hệt nhánh main của bản gốc
+          git reset --hard upstream/main
+          
+          # 4. Push đè lên repo của bạn để đồng bộ hoàn toàn
+          git push origin main --force
+          
+          echo "✅ Đã Sync Fork và cập nhật đè code mới thành công!"
 
       - name: Verify and Download Workflow Files
         env:
