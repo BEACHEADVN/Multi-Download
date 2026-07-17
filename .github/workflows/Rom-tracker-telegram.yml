@@ -1,6 +1,12 @@
 name: HyperOS ROM Tracker
 on:
-  workflow_dispatch: # Đã bỏ phần inputs lựa chọn kiểm tra trùng
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Ép build (Bỏ qua kiểm tra trùng lặp ở repo đích)'
+        required: true
+        type: boolean
+        default: false
   schedule:
     # Chạy tự động hàng giờ
     - cron: '0 * * * *'
@@ -194,10 +200,16 @@ jobs:
           ROM_URL=$(python3 -c "import json; print(json.load(open('${{ matrix.output }}'))['downloads']['recovery']['official'])")
           DEVICE_NAME="${{ matrix.device }}"
           
+          # Đọc giá trị từ input thủ công, mặc định là false nếu chạy tự động (schedule)
+          IS_FORCE_BUILD="${{ github.event.inputs.force_build }}"
+          if [ -z "$IS_FORCE_BUILD" ]; then
+            IS_FORCE_BUILD="false"
+          fi
+          
           if [ "$ROM_URL" != "None" ] && [ ! -z "$ROM_URL" ]; then
             echo "🚀 Triggering target repository for $DEVICE_NAME"
             echo "ROM URL: $ROM_URL"
-            echo "Check Duplicate Option: Force disabled (false)"
+            echo "Force Build Status: $IS_FORCE_BUILD"
             
             curl -L \
               -X POST \
@@ -205,7 +217,7 @@ jobs:
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               https://api.github.com/repos/BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild/dispatches \
-              -d "{\"event_type\":\"trigger_from_tracker\",\"client_payload\":{\"device\":\"$DEVICE_NAME\",\"rom_url\":\"$ROM_URL\",\"check_duplicate\":false}}"
+              -d "{\"event_type\":\"trigger_from_tracker\",\"client_payload\":{\"device\":\"$DEVICE_NAME\",\"rom_url\":\"$ROM_URL\",\"force_build\":$IS_FORCE_BUILD}}"
           else
             echo "No ROM URL found. Skip trigger."
           fi
