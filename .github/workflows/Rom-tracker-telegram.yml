@@ -69,7 +69,6 @@ on:
         default: true
 
   schedule:
-    # Chạy tự động hàng giờ
     - cron: '0 * * * *'
 
 permissions:
@@ -80,7 +79,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-# JOB 1: Đồng bộ, cứu hộ và ĐỢI mod-repo.yml chạy xong
   sync-and-prepare:
     runs-on: ubuntu-latest
     steps:
@@ -90,14 +88,12 @@ jobs:
           repository: 'BEACHEADVN/nothingsvn_xiaomi-stocktoolbuild'
           token: ${{ secrets.GH_TOKEN }}
           ref: 'main'
-          fetch-depth: 0 # Lấy đủ lịch sử commit để kiểm tra chính xác
+          fetch-depth: 0
 
       - name: Check Upstream Commits Before Sync
         id: check_upstream
         run: |
           echo "🔄 Đang kiểm tra lịch sử commit giữa repo gốc và repo fork..."
-          
-          # 1. Thêm remote upstream nếu chưa tồn tại
           git remote add upstream https://github.com/tiencv2006/nothingsvn_xiaomi-stocktoolbuild.git || true
           git fetch upstream main
           
@@ -105,7 +101,6 @@ jobs:
           echo "📍 Commit mới nhất của repo gốc (upstream): $UPSTREAM_SHA"
           echo "📍 Commit hiện tại trên repo fork của bạn: $(git rev-parse HEAD)"
           
-          # 2. Đánh giá xem có cần ép buộc đè code hay không
           if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
             echo "⚠️ Chế độ Force Build được bật! Buộc phải Sync Fork."
             echo "SHOULD_SYNC=true" >> $GITHUB_ENV
@@ -126,14 +121,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           echo "🔄 Đang tiến hành Sync Fork cưỡng bách cho repo..."
-          
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          
-          # Chỉ chạy khi thực sự có code mới: Đè cứng về trạng thái code gốc sạch sẽ nhất
           git reset --hard upstream/main
           git push origin main --force
-          
           echo "✅ Đã Sync Fork và cập nhật đè code mới thành công!"
 
       - name: Verify and Download Workflow Files
@@ -171,7 +162,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          # Xác định giá trị các tham số (nếu chạy tự động theo schedule thì lấy mặc định)
           ENABLE_SYNC_RESOURCES="${{ github.event.inputs.enable_sync_resources }}"
           [ -z "$ENABLE_SYNC_RESOURCES" ] && ENABLE_SYNC_RESOURCES="true"
 
@@ -208,8 +198,10 @@ jobs:
           ENABLE_SYNC_DEBLOAT="${{ github.event.inputs.enable_sync_debloat }}"
           [ -z "$ENABLE_SYNC_DEBLOAT" ] && ENABLE_SYNC_DEBLOAT="true"
 
-          echo "🚀 Kích hoạt mod-repo.yml với các tham số cấu hình..."
-          curl -L \
+          echo "🚀 Kích hoạt mod-repo.yml..."
+          
+          # Đóng gói phẳng thành tối đa 10 keys (ở đây gộp thành 2 object lớn)
+          RESPONSE=$(curl -s -w "\n%{http_code}" -L \
             -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $GH_TOKEN" \
@@ -218,21 +210,34 @@ jobs:
             -d "{
               \"event_type\": \"tracker_trigger\",
               \"client_payload\": {
-                \"enable_sync_resources\": $ENABLE_SYNC_RESOURCES,
-                \"enable_rclone\": $ENABLE_RCLONE,
-                \"enable_pixeldrain\": $ENABLE_PIXELDRAIN,
-                \"enable_mod_uploadrom\": $ENABLE_MOD_UPLOADROM,
-                \"enable_font_logic\": $ENABLE_FONT_LOGIC,
-                \"enable_update_status\": $ENABLE_UPDATE_STATUS,
-                \"enable_inject_packages\": $ENABLE_INJECT_PACKAGES,
-                \"enable_mod_packrom\": $ENABLE_MOD_PACKROM,
-                \"enable_sync_vbpatcher\": $ENABLE_SYNC_VBPATCHER,
-                \"enable_sync_disableavb\": $ENABLE_SYNC_DISABLEAVB,
-                \"enable_sync_fetchinfo\": $ENABLE_SYNC_FETCHINFO,
-                \"enable_sync_debloat\": $ENABLE_SYNC_DEBLOAT
+                \"inject_options\": {
+                  \"enable_sync_resources\": $ENABLE_SYNC_RESOURCES,
+                  \"enable_rclone\": $ENABLE_RCLONE,
+                  \"enable_pixeldrain\": $ENABLE_PIXELDRAIN,
+                  \"enable_mod_uploadrom\": $ENABLE_MOD_UPLOADROM,
+                  \"enable_font_logic\": $ENABLE_FONT_LOGIC,
+                  \"enable_update_status\": $ENABLE_UPDATE_STATUS
+                },
+                \"sync_options\": {
+                  \"enable_inject_packages\": $ENABLE_INJECT_PACKAGES,
+                  \"enable_mod_packrom\": $ENABLE_MOD_PACKROM,
+                  \"enable_sync_vbpatcher\": $ENABLE_SYNC_VBPATCHER,
+                  \"enable_sync_disableavb\": $ENABLE_SYNC_DISABLEAVB,
+                  \"enable_sync_fetchinfo\": $ENABLE_SYNC_FETCHINFO,
+                  \"enable_sync_debloat\": $ENABLE_SYNC_DEBLOAT
+                }
               }
-            }"
+            }")
           
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+          echo "📡 HTTP Status Response: $HTTP_STATUS"
+          
+          if [ "$HTTP_STATUS" -ne 204 ]; then
+            echo "❌ Lỗi kích hoạt dispatch! Chi tiết:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
           echo "⏳ Đợi 10 giây để GitHub khởi tạo run ID..."
           sleep 10
           
@@ -263,7 +268,6 @@ jobs:
             sleep 5
           done
 
-# JOB 2: Quét matrix Tracker trên repository Multi-Download hiện tại
   update:
     needs: sync-and-prepare
     runs-on: ubuntu-latest
