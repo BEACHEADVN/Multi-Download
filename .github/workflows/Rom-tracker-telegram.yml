@@ -168,46 +168,35 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          ENABLE_SYNC_RESOURCES="${{ github.event.inputs.enable_sync_resources }}"
-          [ -z "$ENABLE_SYNC_RESOURCES" ] && ENABLE_SYNC_RESOURCES="true"
+          # Hàm helper chuẩn hóa input checkbox thành boolean JSON (true/false)
+          get_bool() {
+            local val="$1"
+            local default="$2"
+            if [ "$val" = "true" ]; then
+              echo "true"
+            elif [ "$val" = "false" ]; then
+              echo "false"
+            else
+              echo "$default"
+            fi
+          }
 
-          ENABLE_RCLONE="${{ github.event.inputs.enable_rclone }}"
-          [ -z "$ENABLE_RCLONE" ] && ENABLE_RCLONE="true"
-
-          ENABLE_PIXELDRAIN="${{ github.event.inputs.enable_pixeldrain }}"
-          [ -z "$ENABLE_PIXELDRAIN" ] && ENABLE_PIXELDRAIN="true"
-
-          ENABLE_MOD_UPLOADROM="${{ github.event.inputs.enable_mod_uploadrom }}"
-          [ -z "$ENABLE_MOD_UPLOADROM" ] && ENABLE_MOD_UPLOADROM="true"
-
-          ENABLE_FONT_LOGIC="${{ github.event.inputs.enable_font_logic }}"
-          [ -z "$ENABLE_FONT_LOGIC" ] && ENABLE_FONT_LOGIC="true"
-
-          ENABLE_UPDATE_STATUS="${{ github.event.inputs.enable_update_status }}"
-          [ -z "$ENABLE_UPDATE_STATUS" ] && ENABLE_UPDATE_STATUS="true"
-
-          ENABLE_INJECT_PACKAGES="${{ github.event.inputs.enable_inject_packages }}"
-          [ -z "$ENABLE_INJECT_PACKAGES" ] && ENABLE_INJECT_PACKAGES="true"
-
-          ENABLE_MOD_PACKROM="${{ github.event.inputs.enable_mod_packrom }}"
-          [ -z "$ENABLE_MOD_PACKROM" ] && ENABLE_MOD_PACKROM="true"
-
-          ENABLE_SYNC_VBPATCHER="${{ github.event.inputs.enable_sync_vbpatcher }}"
-          [ -z "$ENABLE_SYNC_VBPATCHER" ] && ENABLE_SYNC_VBPATCHER="true"
-
-          ENABLE_SYNC_DISABLEAVB="${{ github.event.inputs.enable_sync_disableavb }}"
-          [ -z "$ENABLE_SYNC_DISABLEAVB" ] && ENABLE_SYNC_DISABLEAVB="true"
-
-          ENABLE_SYNC_FETCHINFO="${{ github.event.inputs.enable_sync_fetchinfo }}"
-          [ -z "$ENABLE_SYNC_FETCHINFO" ] && ENABLE_SYNC_FETCHINFO="true"
-
-          ENABLE_SYNC_DEBLOAT="${{ github.event.inputs.enable_sync_debloat }}"
-          [ -z "$ENABLE_SYNC_DEBLOAT" ] && ENABLE_SYNC_DEBLOAT="true"
-
-          ENABLE_SYNC_GENINSTALL="${{ github.event.inputs.enable_sync_genInstall }}"
-          [ -z "$ENABLE_SYNC_GENINSTALL" ] && ENABLE_SYNC_GENINSTALL="true"
+          ENABLE_SYNC_RESOURCES=$(get_bool "${{ github.event.inputs.enable_sync_resources }}" "true")
+          ENABLE_RCLONE=$(get_bool "${{ github.event.inputs.enable_rclone }}" "false")
+          ENABLE_PIXELDRAIN=$(get_bool "${{ github.event.inputs.enable_pixeldrain }}" "true")
+          ENABLE_MOD_UPLOADROM=$(get_bool "${{ github.event.inputs.enable_mod_uploadrom }}" "true")
+          ENABLE_FONT_LOGIC=$(get_bool "${{ github.event.inputs.enable_font_logic }}" "true")
+          ENABLE_UPDATE_STATUS=$(get_bool "${{ github.event.inputs.enable_update_status }}" "true")
+          ENABLE_INJECT_PACKAGES=$(get_bool "${{ github.event.inputs.enable_inject_packages }}" "true")
+          ENABLE_MOD_PACKROM=$(get_bool "${{ github.event.inputs.enable_mod_packrom }}" "true")
+          ENABLE_SYNC_VBPATCHER=$(get_bool "${{ github.event.inputs.enable_sync_vbpatcher }}" "true")
+          ENABLE_SYNC_DISABLEAVB=$(get_bool "${{ github.event.inputs.enable_sync_disableavb }}" "true")
+          ENABLE_SYNC_FETCHINFO=$(get_bool "${{ github.event.inputs.enable_sync_fetchinfo }}" "true")
+          ENABLE_SYNC_DEBLOAT=$(get_bool "${{ github.event.inputs.enable_sync_debloat }}" "true")
+          ENABLE_SYNC_GENINSTALL=$(get_bool "${{ github.event.inputs.enable_sync_genInstall }}" "true")
 
           echo "🚀 Kích hoạt mod-repo.yml..."
+          echo "   - Enable Rclone: $ENABLE_RCLONE"
           
           RESPONSE=$(curl -s -w "\n%{http_code}" -L \
             -X POST \
