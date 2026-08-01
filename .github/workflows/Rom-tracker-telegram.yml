@@ -68,6 +68,11 @@ on:
         required: true
         type: boolean
         default: true
+      enable_sync_genInstall:
+        description: 'Kiem tra va sua genInstall.sh'
+        required: true
+        type: boolean
+        default: true
 
   schedule:
     - cron: '0 * * * *'
@@ -199,6 +204,9 @@ jobs:
           ENABLE_SYNC_DEBLOAT="${{ github.event.inputs.enable_sync_debloat }}"
           [ -z "$ENABLE_SYNC_DEBLOAT" ] && ENABLE_SYNC_DEBLOAT="true"
 
+          ENABLE_SYNC_GENINSTALL="${{ github.event.inputs.enable_sync_genInstall }}"
+          [ -z "$ENABLE_SYNC_GENINSTALL" ] && ENABLE_SYNC_GENINSTALL="true"
+
           echo "🚀 Kích hoạt mod-repo.yml..."
           
           RESPONSE=$(curl -s -w "\n%{http_code}" -L \
@@ -224,7 +232,8 @@ jobs:
                   \"enable_sync_vbpatcher\": $ENABLE_SYNC_VBPATCHER,
                   \"enable_sync_disableavb\": $ENABLE_SYNC_DISABLEAVB,
                   \"enable_sync_fetchinfo\": $ENABLE_SYNC_FETCHINFO,
-                  \"enable_sync_debloat\": $ENABLE_SYNC_DEBLOAT
+                  \"enable_sync_debloat\": $ENABLE_SYNC_DEBLOAT,
+                  \"enable_sync_genInstall\": $ENABLE_SYNC_GENINSTALL
                 }
               }
             }")
