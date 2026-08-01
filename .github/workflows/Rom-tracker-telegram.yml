@@ -17,7 +17,7 @@ on:
         description: 'Inject Rclone Step'
         required: true
         type: boolean
-        default: false
+        default: true
       enable_pixeldrain:
         description: 'Inject Pixeldrain Step'
         required: true
@@ -172,7 +172,7 @@ jobs:
           [ -z "$ENABLE_SYNC_RESOURCES" ] && ENABLE_SYNC_RESOURCES="true"
 
           ENABLE_RCLONE="${{ github.event.inputs.enable_rclone }}"
-          [ -z "$ENABLE_RCLONE" ] && ENABLE_RCLONE="false"
+          [ -z "$ENABLE_RCLONE" ] && ENABLE_RCLONE="true"
 
           ENABLE_PIXELDRAIN="${{ github.event.inputs.enable_pixeldrain }}"
           [ -z "$ENABLE_PIXELDRAIN" ] && ENABLE_PIXELDRAIN="true"
