@@ -73,6 +73,11 @@ on:
         required: true
         type: boolean
         default: true
+      enable_sync_functionssh:
+        description: 'Kiem tra va sua functions.sh'
+        required: true
+        type: boolean
+        default: true
 
   schedule:
     - cron: '0 * * * *'
@@ -194,6 +199,8 @@ jobs:
           ENABLE_SYNC_FETCHINFO=$(get_bool "${{ github.event.inputs.enable_sync_fetchinfo }}" "true")
           ENABLE_SYNC_DEBLOAT=$(get_bool "${{ github.event.inputs.enable_sync_debloat }}" "true")
           ENABLE_SYNC_GENINSTALL=$(get_bool "${{ github.event.inputs.enable_sync_genInstall }}" "true")
+          ENABLE_SYNC_FUNCTIONS=$(get_bool "${{ github.event.inputs.enable_sync_functionssh }}" "true")
+
 
           echo "🚀 Kích hoạt mod-repo.yml..."
           echo "   - Enable Rclone: $ENABLE_RCLONE"
@@ -223,6 +230,7 @@ jobs:
                   \"enable_sync_fetchinfo\": $ENABLE_SYNC_FETCHINFO,
                   \"enable_sync_debloat\": $ENABLE_SYNC_DEBLOAT,
                   \"enable_sync_genInstall\": $ENABLE_SYNC_GENINSTALL
+                  \"enable_sync_genInstall\": $ENABLE_SYNC_FUNCTIONS
                 }
               }
             }")
