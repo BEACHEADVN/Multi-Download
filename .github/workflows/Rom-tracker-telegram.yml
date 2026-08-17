@@ -229,7 +229,7 @@ jobs:
                   \"enable_sync_disableavb\": $ENABLE_SYNC_DISABLEAVB,
                   \"enable_sync_fetchinfo\": $ENABLE_SYNC_FETCHINFO,
                   \"enable_sync_debloat\": $ENABLE_SYNC_DEBLOAT,
-                  \"enable_sync_genInstall\": $ENABLE_SYNC_GENINSTALL
+                  \"enable_sync_genInstall\": $ENABLE_SYNC_GENINSTALL,
                   \"enable_sync_genInstall\": $ENABLE_SYNC_FUNCTIONS
                 }
               }
