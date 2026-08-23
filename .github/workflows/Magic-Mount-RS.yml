@@ -1,0 +1,145 @@
+name: Magic Mount RS Tracker
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *" # Kiểm tra mỗi giờ
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull latest state
+        run: git pull origin main || true
+
+      # ===== LẤY THÔNG TIN RELEASE (MAGIC_MOUNT_RS) =====
+      - name: Get Latest Release
+        id: magic_mount
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: python
+        run: |
+          import os, requests
+          repo = "KernelSU-Modules-Repo/magic_mount_rs"
+          headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
+          try:
+              # Lấy thông tin release mới nhất
+              response = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", headers=headers)
+              data = response.json()
+              tag = data.get('tag_name', '')
+              date = data.get('published_at', '')
+              html_url = data.get('html_url', '')
+              
+              assets = data.get('assets', [])
+              # Tìm file .zip (thường là module Magisk/KernelSU)
+              zip_asset = next((a for a in assets if a['name'].endswith(".zip")), None)
+              
+              if zip_asset:
+                  file_name = zip_asset['name']
+                  dl_url = zip_asset['browser_download_url']
+                  size = zip_asset['size']
+              else:
+                  # Nếu không có asset zip, lấy link source code zip của tag đó
+                  file_name = f"magic_mount_rs-{tag}.zip"
+                  dl_url = f"https://github.com/{repo}/archive/refs/tags/{tag}.zip"
+                  size = 0
+              
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"tag={tag}\nfile_name={file_name}\ndl_url={dl_url}\nsize={size}\ndate={date}\nhtml_url={html_url}\n")
+          except Exception as e:
+              print(f"Error: {e}"); exit(1)
+
+      # ===== KIỂM TRA TRẠNG THÁI =====
+      - name: Check State
+        id: check
+        run: |
+          touch magic_mount_state.txt
+          if [ "${{ steps.magic_mount.outputs.tag }}" = "$(cat magic_mount_state.txt)" ]; then 
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else 
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ===== TẢI FILE =====
+      - name: Download Module
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          curl -L -o "${{ steps.magic_mount.outputs.file_name }}" "${{ steps.magic_mount.outputs.dl_url }}"
+
+      - name: Send Notification to Telegram
+        if: steps.check.outputs.skip != 'true'
+        uses: xireiki/channel-post@v1
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_USER_ID }}
+          context: |
+            https://github.com/KernelSU-Modules-Repo/magic_mount_rs
+          parse_mode: HTML
+          method: sendMessage
+
+      # ===== GỬI TELEGRAM VỚI NAME CARD =====
+      - name: Upload to Telegram
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ steps.magic_mount.outputs.tag }}
+          URL: ${{ steps.magic_mount.outputs.html_url }}
+          SIZE: ${{ steps.magic_mount.outputs.size }}
+          DATE: ${{ steps.magic_mount.outputs.date }}
+          FILE_NAME: ${{ steps.magic_mount.outputs.file_name }}
+        shell: python
+        run: |
+          import os, requests, datetime
+          
+          def get_size(b):
+              b = int(b)
+              if b == 0: return "Unknown"
+              for unit in ['B','KB','MB']:
+                  if b < 1024: return f"{b:.2f} {unit}"
+                  b /= 1024
+              return f"{b:.2f} MB"
+
+          bot_token = os.environ['BOT_TOKEN']
+          chat_id = os.environ['CHAT_ID']
+          tag, url = os.environ['TAG'], os.environ['URL']
+          size = get_size(os.environ['SIZE'])
+          file_name = os.environ['FILE_NAME']
+          
+          try:
+              date_obj = datetime.datetime.strptime(os.environ['DATE'], "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(hours=7)
+              date_str = date_obj.strftime("%d/%m/%Y %H:%M")
+          except: date_str = "N/A"
+
+          # Name Card Format cho Magic Mount RS
+          caption = (f"<b>🔥 Magic Mount RS New Update</b>\n"
+                     f"📦 <b>Version:</b> <code>{tag}</code>\n"
+                     f"📊 <b>Size:</b> <code>{size}</code>\n"
+                     f"📅 <b>Date:</b> <code>{date_str}</code> (VN)\n\n"
+                     f"🔗 <b>Repo:</b> <a href='https://github.com/KernelSU-Modules-Repo/magic_mount_rs'>KernelSU-Modules-Repo/magic_mount_rs</a>\n"
+                     f"📝 <a href='{url}'>View Changelog on GitHub</a>")
+          
+          with open(file_name, 'rb') as f:
+              files = {'document': (file_name, f)}
+              data = {'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'}
+              r = requests.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data=data, files=files)
+              if r.status_code != 200:
+                  print(r.text); exit(1)
+
+      # ===== LƯU TRẠNG THÁI MỚI =====
+      - name: Save new state
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "${{ steps.magic_mount.outputs.tag }}" > magic_mount_state.txt
+          git add magic_mount_state.txt
+          git commit -m "Update Magic Mount RS state to ${{ steps.magic_mount.outputs.tag }}" || exit 0
+          git pull --rebase origin main
+          git push origin main
