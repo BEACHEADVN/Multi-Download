@@ -1,16 +1,43 @@
-Release: r5
-5.15.167-android13-2024-11-AnyKernel3.zip
-Dung lượng: 39.74 MB
-Cập nhật: 25/06/2026 11:54
-5.15.170-android13-2025-01-AnyKernel3.zip
-Dung lượng: 39.75 MB
-Cập nhật: 25/06/2026 11:54
-5.15.178-android13-2025-03-AnyKernel3.zip
-Dung lượng: 39.80 MB
-Cập nhật: 25/06/2026 11:54
-5.15.189-android13-2025-09-AnyKernel3.zip
-Dung lượng: 39.88 MB
-Cập nhật: 25/06/2026 11:54
-6.12.23-android16-2025-06-AnyKernel3.zip
-Dung lượng: 34.28 MB
-Cập nhật: 25/06/2026 11:54
+Release: r20
+5.15.167-android13-2024-11-KernelSU-AnyKernel3.zip
+Dung lượng: 22.12 MB
+Cập nhật: 06/09/2026 19:00
+5.15.167-android13-2024-11-KernelSU-Next-AnyKernel3.zip
+Dung lượng: 22.13 MB
+Cập nhật: 06/09/2026 19:00
+5.15.167-android13-2024-11-ReSukiSU-AnyKernel3.zip
+Dung lượng: 22.13 MB
+Cập nhật: 06/09/2026 19:00
+5.15.170-android13-2025-01-KernelSU-AnyKernel3.zip
+Dung lượng: 22.12 MB
+Cập nhật: 06/09/2026 19:00
+5.15.170-android13-2025-01-KernelSU-Next-AnyKernel3.zip
+Dung lượng: 22.13 MB
+Cập nhật: 06/09/2026 19:00
+5.15.170-android13-2025-01-ReSukiSU-AnyKernel3.zip
+Dung lượng: 22.14 MB
+Cập nhật: 06/09/2026 19:00
+5.15.178-android13-2025-03-KernelSU-AnyKernel3.zip
+Dung lượng: 22.15 MB
+Cập nhật: 06/09/2026 19:00
+5.15.178-android13-2025-03-KernelSU-Next-AnyKernel3.zip
+Dung lượng: 22.16 MB
+Cập nhật: 06/09/2026 19:00
+5.15.178-android13-2025-03-ReSukiSU-AnyKernel3.zip
+Dung lượng: 22.16 MB
+Cập nhật: 06/09/2026 19:00
+5.15.189-android13-2025-09-KernelSU-AnyKernel3.zip
+Dung lượng: 22.18 MB
+Cập nhật: 06/09/2026 19:00
+5.15.189-android13-2025-09-KernelSU-Next-AnyKernel3.zip
+Dung lượng: 22.19 MB
+Cập nhật: 06/09/2026 19:00
+5.15.189-android13-2025-09-ReSukiSU-AnyKernel3.zip
+Dung lượng: 22.20 MB
+Cập nhật: 06/09/2026 19:00
+6.12.23-android16-2025-06-KernelSU-AnyKernel3.zip
+Dung lượng: 19.46 MB
+Cập nhật: 06/09/2026 19:00
+6.12.23-android16-2025-06-ReSukiSU-AnyKernel3.zip
+Dung lượng: 19.47 MB
+Cập nhật: 06/09/2026 19:00
