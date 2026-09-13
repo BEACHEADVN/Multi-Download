@@ -101,43 +101,6 @@ jobs:
           ref: 'main'
           fetch-depth: 0
 
-      - name: Check Upstream Commits Before Sync
-        id: check_upstream
-        run: |
-          echo "🔄 Đang kiểm tra lịch sử commit giữa repo gốc và repo fork..."
-          git remote add upstream https://github.com/tiencv2006/nothingsvn_xiaomi-stocktoolbuild.git || true
-          git fetch upstream main
-          
-          UPSTREAM_SHA=$(git rev-parse upstream/main)
-          echo "📍 Commit mới nhất của repo gốc (upstream): $UPSTREAM_SHA"
-          echo "📍 Commit hiện tại trên repo fork của bạn: $(git rev-parse HEAD)"
-          
-          if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
-            echo "⚠️ Chế độ Force Build được bật! Buộc phải Sync Fork."
-            echo "SHOULD_SYNC=true" >> $GITHUB_ENV
-          elif git merge-base --is-ancestor "$UPSTREAM_SHA" HEAD; then
-            echo "=========================================================================="
-            echo "⛔ Repo gốc không có commit mới. Các thay đổi của bạn đang an toàn."
-            echo "⏭️ BỎ QUA bước Sync Fork đè code để bảo vệ commit của bạn. Vẫn chạy các bước tiếp theo!"
-            echo "=========================================================================="
-            echo "SHOULD_SYNC=false" >> $GITHUB_ENV
-          else
-            echo "🚀 Phát hiện repo gốc có thay đổi mới! Sẽ tiến hành Sync Fork."
-            echo "SHOULD_SYNC=true" >> $GITHUB_ENV
-          fi
-
-      - name: Sync Fork Layout
-        if: env.SHOULD_SYNC == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          echo "🔄 Đang tiến hành Sync Fork cưỡng bách cho repo..."
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git reset --hard upstream/main
-          git push origin main --force
-          echo "✅ Đã Sync Fork và cập nhật đè code mới thành công!"
-
       - name: Verify and Download Workflow Files
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
