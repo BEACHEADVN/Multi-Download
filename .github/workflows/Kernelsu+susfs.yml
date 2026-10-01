@@ -28,7 +28,7 @@ jobs:
 
             repo = "WildKernels/GKI_KernelSU_SUSFS"
             headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
-            target_kernels = ["5.15.167-android13", "5.15.170-android13", "5.15.178-android13", "5.15.189-android13", "6.12.23-android16"]
+            target_kernels = ["6.12.23-android16"]
             
             try:
                 # Lấy bản Release mới nhất trên cùng
