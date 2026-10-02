@@ -1,15 +1,18 @@
+
 name: GKI KernelSU SUSFS
 
 on:
   workflow_dispatch:
   schedule:
     - cron: "0 * * * *" # Chạy vào phút thứ 0 của mỗi giờ
+
 permissions:
   contents: write
 
 jobs:
   check:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -24,67 +27,145 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: python
         run: |
-            import os, requests, json
+          import os
+          import requests
+          import json
 
-            repo = "WildKernels/GKI_KernelSU_SUSFS"
-            headers = {"Authorization": f"token {os.environ['GH_TOKEN']}"}
-            target_kernels = ["6.12.23-android16"]
-            
-            try:
-                # Lấy bản Release mới nhất trên cùng
-                response = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", headers=headers)
-                release = response.json()
-                
-                tag_name = release.get('tag_name', '').strip()
-                published_date = release.get('published_at', release.get('created_at', ''))
-                assets = release.get('assets', [])
-                
-                # Đọc Tag cũ từ dòng đầu tiên của file trạng thái kernelsu+susfs.txt nếu có
-                state_file = "kernelsu+susfs.txt"
-                old_tag = ""
-                if os.path.exists(state_file):
-                    with open(state_file, 'r') as sf:
-                        first_line = sf.readline().strip()
-                        if first_line.startswith("Release:"):
-                            old_tag = first_line.replace("Release:", "").strip()
-                
-                # Nếu Tag trên GitHub trùng với Tag đã lưu -> Bỏ qua
-                if old_tag == tag_name:
-                    with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                        f.write("skip=true\n")
-                    print(f"No new release. Current release {tag_name} has already been processed.")
-                    exit(0)
-                
-                updates_to_process = []
-                # Chỉ lọc tìm các file asset thuộc 4 bản kernel mục tiêu
-                for asset in assets:
-                    asset_name = asset.get('name', '')
-                    for k_ver in target_kernels:
-                        if k_ver in asset_name and asset_name.endswith('.zip'):
-                            updates_to_process.append({
-                                "ver_key": k_ver,
-                                "tag": tag_name,
-                                "file_name": asset_name,
-                                "dl_url": asset.get('browser_download_url', ''),
-                                "size": asset.get('size', 0),
-                                "date": published_date
-                            })
-                
-                with open("targets.json", "w") as f:
-                    json.dump(updates_to_process, f)
-                
-                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                    if updates_to_process:
-                        f.write("skip=false\n")
-                        f.write(f"new_tag={tag_name}\n")
-                        print(f"Found new release {tag_name} with {len(updates_to_process)} matching asset(s).")
-                    else:
-                        f.write("skip=true\n")
-                        print(f"New release {tag_name} found, but contains no matching kernel assets.")
-                        
-            except Exception as e:
-                print(f"CRITICAL ERROR: {e}")
-                exit(1)
+          repo = "WildKernels/GKI_KernelSU_SUSFS"
+          headers = {
+              "Authorization": f"token {os.environ['GH_TOKEN']}"
+          }
+
+          target_kernels = ["6.12.23-android16"]
+
+          try:
+              # Lấy Release mới nhất
+              response = requests.get(
+                  f"https://api.github.com/repos/{repo}/releases/latest",
+                  headers=headers,
+                  timeout=30
+              )
+              response.raise_for_status()
+              release = response.json()
+
+              tag_name = release.get('tag_name', '').strip()
+              published_date = release.get(
+                  'published_at',
+                  release.get('created_at', '')
+              )
+              assets = release.get('assets', [])
+
+              # Đọc Tag cũ từ file trạng thái
+              state_file = "kernelsu+susfs.txt"
+              old_tag = ""
+
+              if os.path.exists(state_file):
+                  with open(state_file, 'r') as sf:
+                      first_line = sf.readline().strip()
+
+                      if first_line.startswith("Release:"):
+                          old_tag = first_line.replace(
+                              "Release:", ""
+                          ).strip()
+
+              # Nếu Tag đã được xử lý thì bỏ qua
+              if old_tag == tag_name:
+                  with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                      f.write("skip=true\n")
+
+                  print(
+                      f"No new release. Current release {tag_name} "
+                      "has already been processed."
+                  )
+                  exit(0)
+
+              updates_to_process = []
+
+              # ===== FILTER ASSETS =====
+              for asset in assets:
+                  asset_name = asset.get('name', '')
+                  asset_lower = asset_name.lower()
+
+                  asset_info = {
+                      "tag": tag_name,
+                      "file_name": asset_name,
+                      "dl_url": asset.get(
+                          'browser_download_url', ''
+                      ),
+                      "size": asset.get('size', 0),
+                      "date": published_date
+                  }
+
+                  # 1. Kernel 6.12.23 Android 16
+                  if (
+                      any(k in asset_name for k in target_kernels)
+                      and asset_name.endswith('.zip')
+                  ):
+                      updates_to_process.append({
+                          **asset_info,
+                          "ver_key": "6.12.23-android16"
+                      })
+
+                  # 2. NoMount Metamodule
+                  elif asset_name.lower() == "nomount-metamodule.zip".lower():
+                      updates_to_process.append({
+                          **asset_info,
+                          "ver_key": "NoMount-Metamodule"
+                      })
+
+                  # 3. KernelSU Next Manager
+                  # Chỉ lấy APK không có chữ spoof
+                  elif (
+                      "kernelsu_next" in asset_lower
+                      and asset_lower.endswith('.apk')
+                      and "spoof" not in asset_lower
+                  ):
+                      updates_to_process.append({
+                          **asset_info,
+                          "ver_key": "KernelSU Next Manager"
+                      })
+
+                  # 4. ReSukiSU Manager
+                  elif (
+                      "resukisu" in asset_lower
+                      and asset_lower.endswith('.apk')
+                  ):
+                      updates_to_process.append({
+                          **asset_info,
+                          "ver_key": "ReSukiSU Manager"
+                      })
+
+              # Lưu danh sách asset cần xử lý
+              with open("targets.json", "w") as f:
+                  json.dump(updates_to_process, f)
+
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  if updates_to_process:
+                      f.write("skip=false\n")
+                      f.write(f"new_tag={tag_name}\n")
+
+                      print(
+                          f"Found new release {tag_name} "
+                          f"with {len(updates_to_process)} "
+                          "matching asset(s)."
+                      )
+
+                      for item in updates_to_process:
+                          print(
+                              f" - {item['ver_key']}: "
+                              f"{item['file_name']}"
+                          )
+                  else:
+                      f.write("skip=true\n")
+
+                      print(
+                          f"New release {tag_name} found, "
+                          "but contains no matching assets."
+                      )
+
+          except Exception as e:
+              print(f"CRITICAL ERROR: {e}")
+              exit(1)
 
       # ===== DOWNLOAD & NOTIFY & UPLOAD =====
       - name: Process Updates and Upload
@@ -95,13 +176,21 @@ jobs:
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         shell: python
         run: |
-          import os, requests, json, datetime, subprocess
+          import os
+          import requests
+          import json
+          import datetime
+          import subprocess
 
           def get_size(b):
               b = int(b)
-              for unit in ['B','KB','MB']:
-                  if b < 1024: return f"{b:.2f} {unit}"
+
+              for unit in ['B', 'KB', 'MB', 'GB']:
+                  if b < 1024:
+                      return f"{b:.2f} {unit}"
                   b /= 1024
+
+              return f"{b:.2f} TB"
 
           with open("targets.json", "r") as f:
               updates = json.load(f)
@@ -118,33 +207,86 @@ jobs:
 
               print(f"Downloading: {file_name}")
 
-              # 1. Tải file về
-              subprocess.run(["curl", "-L", "-o", file_name, dl_url], check=True)
+              # 1. Tải file
+              subprocess.run(
+                  ["curl", "-fL", "--retry", "3", "-o", file_name, dl_url],
+                  check=True
+              )
 
-              # 2. Gửi link gốc repo về Telegram User ID
-              source_text = "https://github.com/WildKernels/GKI_KernelSU_SUSFS"
-              requests.post(f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage",
-                            data={'chat_id': os.environ['USER_ID'], 'text': source_text, 'parse_mode': 'HTML'})
+              # 2. Gửi link repo về Telegram User ID
+              source_text = (
+                  "https://github.com/WildKernels/GKI_KernelSU_SUSFS"
+              )
 
-              # 3. Định dạng thời gian sang múi giờ VN (+7)
+              response = requests.post(
+                  f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage",
+                  data={
+                      'chat_id': os.environ['USER_ID'],
+                      'text': source_text,
+                      'parse_mode': 'HTML'
+                  },
+                  timeout=60
+              )
+              response.raise_for_status()
+
+              # 3. Chuyển thời gian sang múi giờ Việt Nam (+7)
               try:
-                  date_obj = datetime.datetime.strptime(date_raw, "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(hours=7)
+                  date_obj = (
+                      datetime.datetime.strptime(
+                          date_raw,
+                          "%Y-%m-%dT%H:%M:%SZ"
+                      )
+                      + datetime.timedelta(hours=7)
+                  )
+
                   date_str = date_obj.strftime("%d/%m/%Y %H:%M")
-              except:
+
+              except Exception:
                   date_str = "N/A"
 
-              # 4. Đẩy file kèm caption chi tiết lên Telegram Chat ID
-              caption = f"<b>🚀 GKI SUSFS Update ({ver_key})!</b>\n\n📦 Release: <code>{tag}</code>\n📂 File: <code>{file_name}</code>\n📊 Dung lượng: <code>{size}</code>\n📅 Cập nhật: <code>{date_str}</code>"
-              
+              # 4. Caption Telegram
+              caption = (
+                  f"<b>🚀 GKI SUSFS Update ({ver_key})!</b>\n\n"
+                  f"📦 Release: <code>{tag}</code>\n"
+                  f"📂 File: <code>{file_name}</code>\n"
+                  f"📊 Dung lượng: <code>{size}</code>\n"
+                  f"📅 Cập nhật: <code>{date_str}</code>"
+              )
+
+              # 5. Gửi file lên Telegram Chat ID
               with open(file_name, 'rb') as doc_file:
-                  requests.post(f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendDocument", 
-                                data={'chat_id': os.environ['CHAT_ID'], 'caption': caption, 'parse_mode': 'HTML'}, 
-                                files={'document': (file_name, doc_file)})
+                  response = requests.post(
+                      f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendDocument",
+                      data={
+                          'chat_id': os.environ['CHAT_ID'],
+                          'caption': caption,
+                          'parse_mode': 'HTML'
+                      },
+                      files={
+                          'document': (file_name, doc_file)
+                      },
+                      timeout=300
+                  )
 
-              # Gom thông tin định dạng để ghi vào file txt sau này
-              txt_records.append(f"{file_name}\nDung lượng: {size}\nCập nhật: {date_str}")
+                  response.raise_for_status()
 
-          # Lưu danh sách text record ra file tạm để bước sau xử lý ghi đè
+              result = response.json()
+
+              if not result.get('ok'):
+                  raise RuntimeError(
+                      f"Telegram upload failed: {result}"
+                  )
+
+              print(f"Successfully uploaded: {file_name}")
+
+              # 6. Ghi thông tin vào danh sách trạng thái
+              txt_records.append(
+                  f"{file_name}\n"
+                  f"Dung lượng: {size}\n"
+                  f"Cập nhật: {date_str}"
+              )
+
+          # Lưu dữ liệu cho bước Save State
           with open("text_payload.json", "w") as f:
               json.dump(txt_records, f)
 
@@ -154,18 +296,21 @@ jobs:
         run: |
           python3 -c "
           import json
+
           with open('text_payload.json', 'r') as f:
               records = json.load(f)
-          
-          # Ghi đè cấu trúc mới vào kernelsu+susfs.txt
+
           with open('kernelsu+susfs.txt', 'w') as f:
               f.write('Release: ${{ steps.info.outputs.new_tag }}\n')
               f.write('\n'.join(records) + '\n')
           "
-          
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git add kernelsu+susfs.txt
+
           git commit -m "Update GKI Kernel assets info to ${{ steps.info.outputs.new_tag }}" || exit 0
+
           git pull --rebase origin main
           git push origin main
