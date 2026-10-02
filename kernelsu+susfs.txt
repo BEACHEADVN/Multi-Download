@@ -1,10 +1,1 @@
-Release: r21
-6.12.23-android16-2025-06-KernelSU-AnyKernel3.zip
-Dung lượng: 19.46 MB
-Cập nhật: 02/10/2026 04:07
-6.12.23-android16-2025-06-KernelSU-Next-AnyKernel3.zip
-Dung lượng: 19.48 MB
-Cập nhật: 02/10/2026 04:07
-6.12.23-android16-2025-06-ReSukiSU-AnyKernel3.zip
-Dung lượng: 19.48 MB
-Cập nhật: 02/10/2026 04:07
+
