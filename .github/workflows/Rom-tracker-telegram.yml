@@ -79,9 +79,6 @@ on:
         type: boolean
         default: true
 
-  schedule:
-    - cron: '0 * * * *'
-
 permissions:
   contents: write
 
