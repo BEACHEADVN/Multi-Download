@@ -1,16 +1,16 @@
-Release: r22
+Release: r23
 6.12.23-android16-2025-06-BakaSU-AnyKernel3.zip
-Dung lượng: 20.24 MB
-Cập nhật: 30/10/2026 02:07
+Dung lượng: 20.27 MB
+Cập nhật: 18/11/2026 07:57
 6.12.23-android16-2025-06-KernelSU-AnyKernel3.zip
-Dung lượng: 20.23 MB
-Cập nhật: 30/10/2026 02:07
-6.12.23-android16-2025-06-KernelSU-Next-AnyKernel3.zip
 Dung lượng: 20.25 MB
-Cập nhật: 30/10/2026 02:07
-KernelSU_Next_v3.4.2-87-gda0b3f37_33442-release.apk
-Dung lượng: 16.54 MB
-Cập nhật: 30/10/2026 02:07
+Cập nhật: 18/11/2026 07:57
+6.12.23-android16-2025-06-KernelSU-Next-AnyKernel3.zip
+Dung lượng: 20.27 MB
+Cập nhật: 18/11/2026 07:57
+KernelSU_Next_v3.4.2-198-g7ccf6147_33553-release.apk
+Dung lượng: 15.88 MB
+Cập nhật: 18/11/2026 07:57
 NoMount-Metamodule.zip
-Dung lượng: 65.39 KB
-Cập nhật: 30/10/2026 02:07
+Dung lượng: 254.04 KB
+Cập nhật: 18/11/2026 07:57
